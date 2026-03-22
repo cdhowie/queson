@@ -6,6 +6,36 @@ use pyo3::{
     types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString},
 };
 
+/// Create a JSON fragment from a bytes value, which must contain an
+/// already-encoded JSON value.
+///
+/// If a fragment is encountered during serialization, the fragment contents are
+/// emitted directly.  This can be used when one JSON-encoded value needs to be
+/// placed inside of a structure that will be serialized to JSON, without the
+/// overhead of deserializing it and re-serializing it.
+///
+/// By default, the provided bytes value is validated and an error thrown if it
+/// does not contain valid JSON.  Specify `validate=False` to skip validation.
+#[pyclass(frozen)]
+pub struct Fragment(Py<PyBytes>);
+
+#[pymethods]
+impl Fragment {
+    /// Create a new fragment.
+    ///
+    /// By default, the provided byte string is validated and an error thrown if
+    /// validation fails.  Specify `validate=False` to skip validation.
+    #[new]
+    #[pyo3(signature = (bytes, /, validate = true))]
+    fn new<'py>(bytes: Bound<'py, PyBytes>, validate: bool) -> PyResult<Self> {
+        if validate {
+            crate::de::validate_json(bytes.py(), bytes.as_bytes())?;
+        }
+
+        Ok(Self(bytes.into()))
+    }
+}
+
 /// Serialize the given value to the buffer.
 fn any_to_json<'py>(buf: &mut Vec<u8>, value: &Bound<'py, PyAny>) -> PyResult<()> {
     if value.is_none() {
@@ -24,6 +54,8 @@ fn any_to_json<'py>(buf: &mut Vec<u8>, value: &Bound<'py, PyAny>) -> PyResult<()
         list_to_json(buf, l)?;
     } else if let Ok(d) = value.cast::<PyDict>() {
         dict_to_json(buf, d)?;
+    } else if let Ok(f) = value.cast::<Fragment>() {
+        buf.extend(f.borrow().0.as_bytes(value.py()));
     } else {
         return Err(PyErr::new::<PyValueError, _>(format!(
             "cannot serialize type as JSON: {}",

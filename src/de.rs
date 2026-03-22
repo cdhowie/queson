@@ -91,8 +91,8 @@ impl From<PyErr> for ParseError<PyErr> {
     }
 }
 
-impl From<ParseError<PyErr>> for PyErr {
-    fn from(value: ParseError<PyErr>) -> Self {
+impl<E: Into<PyErr>> From<ParseError<E>> for PyErr {
+    fn from(value: ParseError<E>) -> Self {
         PyErr::new::<PyValueError, _>(match value {
             ParseError::Eof => "unexpected EOF",
             ParseError::ExpectedEof => "expected EOF",
@@ -109,12 +109,12 @@ impl From<ParseError<PyErr>> for PyErr {
                 return PyErr::new::<PyValueError, _>(format!("expected {s:?}"));
             }
 
-            ParseError::Custom(e) => return e,
+            ParseError::Custom(e) => return e.into(),
         })
     }
 }
 
-impl ParseError<PyErr> {
+impl<E: Into<PyErr>> ParseError<E> {
     /// Convert this parsing error into a `PyErr` with a note that specifies the
     /// given location as the source of the error.
     fn into_pyerr_with_location<'py>(self, python: Python<'py>, location: usize) -> PyErr {
@@ -130,10 +130,6 @@ impl ParseError<PyErr> {
 }
 
 /// Defines what kind of values are deserialized and how.
-///
-/// This can be used later to support deserializing to other kinds of types, or
-/// even to support validation without deserialization by e.g. deserializing
-/// everything to ().
 trait Deserialization {
     /// A type that can hold any possible deserialized value.
     type Any;
@@ -255,7 +251,9 @@ impl<'py> Deserialization for PyDeserialization<'py> {
             }
 
             true => {
-                let parsed: f64 = value.parse().map_err(|_| ParseError::InvalidNumber)?;
+                let parsed: f64 = value
+                    .parse()
+                    .map_err(|_| ParseError::<PyErr>::InvalidNumber)?;
 
                 Ok(PyFloat::new(self.python, parsed).into())
             }
@@ -288,6 +286,55 @@ impl<'py> Deserialization for PyDeserialization<'py> {
 
     fn extend_list(&self, list: &mut Self::List, value: Self::Any) -> Result<(), Self::Error> {
         list.append(value.0)
+    }
+}
+
+/// Deserialization to nothing.
+///
+/// This type of deserialization can be used to validate that an input is valid
+/// JSON without the overhead of producing a value.
+struct ValidateDeserialization;
+
+impl Deserialization for ValidateDeserialization {
+    type Any = ();
+    type Null = ();
+    type Bool = ();
+    type String = ();
+    type Number = ();
+    type Map = ();
+    type List = ();
+
+    type Error = std::convert::Infallible;
+
+    fn create_null(&self) -> Self::Null {}
+
+    fn create_bool(&self, _value: bool) -> Self::Bool {}
+
+    fn create_string(&self, _value: &str) -> Self::String {}
+
+    fn create_number(&self, _value: &str, _is_float: bool) -> Result<Self::Number, Self::Error> {
+        Ok(())
+    }
+
+    fn create_map(&self) -> Self::Map {}
+
+    fn extend_map(
+        &self,
+        _map: &mut Self::Map,
+        _key: Cow<'_, str>,
+        _value: Self::Any,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn finish_map(&self, _map: Self::Map) -> Result<Self::Any, Self::Error> {
+        Ok(())
+    }
+
+    fn create_list(&self) -> Self::List {}
+
+    fn extend_list(&self, _list: &mut Self::List, _value: Self::Any) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 
@@ -807,7 +854,56 @@ fn continue_parse_map<'json, D: Deserialization>(
     }
 }
 
-/// Parse a JSON value.
+/// Parse a JSON value with the given [`Deserialization`] implementation.
+fn parse_json_with<D: Deserialization>(
+    deserialization: &D,
+    mut json: &[u8],
+) -> Result<D::Any, (ParseError<D::Error>, usize)> {
+    let len = json.len();
+
+    json.consume_whitespace();
+
+    let mut stack = vec![];
+
+    let mut last_any = parse_any(deserialization, &mut json);
+
+    let result = loop {
+        last_any = match last_any {
+            ThunkResult::Err(e) => {
+                return Err((e, len - json.len()));
+            }
+
+            ThunkResult::Thunk(op) => {
+                stack.push(op);
+
+                parse_any(deserialization, &mut json)
+            }
+
+            ThunkResult::Ok(value) => match stack.pop() {
+                Some(op) => match op {
+                    Thunk::ParsingList(list) => {
+                        continue_parse_list(deserialization, list, value, &mut json)
+                    }
+
+                    Thunk::ParsingMap { dict, key } => {
+                        continue_parse_map(deserialization, dict, key, value, &mut json)
+                    }
+                },
+
+                None => break value,
+            },
+        };
+    };
+
+    json.consume_whitespace();
+
+    match json.is_empty() {
+        true => Ok(result),
+        false => Err((ParseError::ExpectedEof, len - json.len())),
+    }
+}
+
+/// Parse a JSON-encoded value.
 ///
 /// `json` must contain a UTF-8 encoded string of data that represents a single
 /// valid JSON value.
@@ -818,54 +914,23 @@ fn continue_parse_map<'json, D: Deserialization>(
 /// graph.
 pub fn parse_json<'py>(
     python: Python<'py>,
-    mut json: &[u8],
+    json: &[u8],
     object_hook: Option<&'py Bound<'py, PyFunction>>,
-) -> Result<Bound<'py, PyAny>, PyErr> {
-    let len = json.len();
-
-    json.consume_whitespace();
-
-    let deserialization = PyDeserialization {
-        python,
-        object_hook,
-    };
-
-    let mut stack = vec![];
-
-    let mut last_any = parse_any(&deserialization, &mut json);
-
-    let result = loop {
-        last_any = match last_any {
-            ThunkResult::Err(e) => {
-                return Err(e.into_pyerr_with_location(python, len - json.len()));
-            }
-
-            ThunkResult::Thunk(op) => {
-                stack.push(op);
-
-                parse_any(&deserialization, &mut json)
-            }
-
-            ThunkResult::Ok(value) => match stack.pop() {
-                Some(op) => match op {
-                    Thunk::ParsingList(list) => {
-                        continue_parse_list(&deserialization, list, value, &mut json)
-                    }
-
-                    Thunk::ParsingMap { dict, key } => {
-                        continue_parse_map(&deserialization, dict, key, value, &mut json)
-                    }
-                },
-
-                None => break value.0,
-            },
-        };
-    };
-
-    json.consume_whitespace();
-
-    match json.is_empty() {
-        true => Ok(result),
-        false => Err(ParseError::ExpectedEof.into_pyerr_with_location(python, len - json.len())),
+) -> PyResult<Bound<'py, PyAny>> {
+    match parse_json_with(
+        &PyDeserialization {
+            python,
+            object_hook,
+        },
+        json,
+    ) {
+        Ok(v) => Ok(v.0),
+        Err((e, location)) => Err(e.into_pyerr_with_location(python, location)),
     }
+}
+
+/// Validates that the given JSON-encoded value is well-formed.
+pub fn validate_json<'py>(python: Python<'py>, json: &[u8]) -> PyResult<()> {
+    parse_json_with(&ValidateDeserialization, json)
+        .map_err(|(e, location)| e.into_pyerr_with_location(python, location))
 }

@@ -35,4 +35,7 @@ mod apjson {
     fn dumps<'py>(value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyBytes>> {
         crate::ser::into_json(value)
     }
+
+    #[pymodule_export]
+    use crate::ser::Fragment;
 }
