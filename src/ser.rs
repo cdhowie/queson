@@ -3,7 +3,7 @@ use std::io::Write;
 use pyo3::{
     exceptions::PyValueError,
     prelude::*,
-    types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString},
+    types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple},
 };
 
 /// Create a JSON fragment from a bytes value, which must contain an
@@ -51,7 +51,9 @@ fn any_to_json<'py>(buf: &mut Vec<u8>, value: &Bound<'py, PyAny>) -> PyResult<()
     } else if let Ok(f) = value.cast::<PyFloat>() {
         write!(buf, "{}", f.value()).unwrap();
     } else if let Ok(l) = value.cast::<PyList>() {
-        list_to_json(buf, l)?;
+        list_to_json(buf, l.iter())?;
+    } else if let Ok(t) = value.cast::<PyTuple>() {
+        list_to_json(buf, t.iter())?;
     } else if let Ok(d) = value.cast::<PyDict>() {
         dict_to_json(buf, d)?;
     } else if let Ok(f) = value.cast::<Fragment>() {
@@ -95,10 +97,13 @@ fn string_to_json(buf: &mut Vec<u8>, s: &str) {
 }
 
 /// Serialize the given list to the buffer.
-fn list_to_json(buf: &mut Vec<u8>, list: &Bound<'_, PyList>) -> PyResult<()> {
+fn list_to_json<'py>(
+    buf: &mut Vec<u8>,
+    list: impl IntoIterator<Item = Bound<'py, PyAny>>,
+) -> PyResult<()> {
     buf.push(b'[');
 
-    let mut items = list.iter();
+    let mut items = list.into_iter();
 
     if let Some(i) = items.next() {
         any_to_json(buf, &i)?;
