@@ -138,8 +138,17 @@ fn any_to_json_native<'py>(
         string_to_json(&mut state.buffer, s.to_str()?);
     } else if let Ok(i) = value.cast::<PyInt>() {
         write!(state.buffer, "{i}").unwrap();
-    } else if let Ok(f) = value.cast::<PyFloat>() {
-        write!(state.buffer, "{}", f.value()).unwrap();
+    } else if let Ok(f) = value.cast::<PyFloat>().map(|f| f.value()) {
+        if !f.is_finite() {
+            return Err(AnyToJsonNativeError::Serialization(PyErr::new::<
+                PyValueError,
+                _,
+            >(
+                "non-finite floating point number",
+            )));
+        }
+
+        write!(state.buffer, "{f}").unwrap();
     } else if let Ok(l) = value.cast::<PyList>() {
         state.push_object(l)?;
         list_to_json(state, l.iter())?;
