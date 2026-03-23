@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 
 mod de;
 mod ser;
+mod thunk;
 
 #[pymodule]
 mod apjson {

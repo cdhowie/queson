@@ -6,17 +6,13 @@ use pyo3::{
     types::{PyBool, PyDict, PyFloat, PyFunction, PyInt, PyList, PyNone, PyString},
 };
 
-/// Specialized result for functions that can return thunks.
-#[must_use]
-enum ThunkResult<'json, D: Deserialization> {
-    /// Success.
-    Ok(D::Any),
-    /// Failure.
-    Err(ParseError<D::Error>),
+use crate::thunk_try;
 
-    /// Incomplete with a thunk holding the result of the operation so far.
-    Thunk(Thunk<'json, D>),
-}
+type ThunkResult<'json, D> = crate::thunk::ThunkResult<
+    <D as Deserialization>::Any,
+    ParseError<<D as Deserialization>::Error>,
+    Thunk<'json, D>,
+>;
 
 /// A parsing thunk.
 ///
@@ -38,20 +34,6 @@ enum Thunk<'json, D: Deserialization> {
         /// The next key to be added.
         key: Cow<'json, str>,
     },
-}
-
-/// Unwraps a standard [`Result`] like the `?` operator, but the `Err` variant
-/// is repackaged into a [`ThunkResult::Err`].
-///
-/// This allows for more ergonomic usage of `Result`-returning functions from
-/// within a function that returns `ThunkResult`.
-macro_rules! thunk_try {
-    ( $e:expr ) => {
-        match $e {
-            ::std::result::Result::Ok(v) => v,
-            ::std::result::Result::Err(e) => return ThunkResult::Err(e.into()),
-        }
-    };
 }
 
 /// A JSON parse error.

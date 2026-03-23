@@ -5,8 +5,60 @@ use pyo3::{
     prelude::*,
     types::{
         PyBool, PyBytes, PyDict, PyFloat, PyFunction, PyInt, PyList, PyString, PyTuple, PyType,
+        iter::{BoundDictIterator, BoundListIterator, BoundTupleIterator},
     },
 };
+
+use crate::thunk_try;
+
+type ThunkResult<'py, E> = crate::thunk::ThunkResult<(), E, Thunk<'py>>;
+
+/// A serialization thunk.
+struct Thunk<'py> {
+    /// The item to be serialized next.
+    item: Bound<'py, PyAny>,
+    /// Continuation after the item is serialized.
+    continuation: ThunkContinuation<'py>,
+}
+
+/// The continuation type of a serialization thunk.
+enum ThunkContinuation<'py> {
+    /// In-progress sequence serialization.
+    SerializingSequence(SequenceIterator<'py>),
+    /// In-progress dict serialization.
+    SerializingDict(BoundDictIterator<'py>),
+}
+
+/// Wrapper for Python sequence iterators (lists and tuples).
+enum SequenceIterator<'py> {
+    /// List iterator.
+    List(BoundListIterator<'py>),
+    /// Tuple iterator.
+    Tuple(BoundTupleIterator<'py>),
+}
+
+impl<'py> From<BoundListIterator<'py>> for SequenceIterator<'py> {
+    fn from(value: BoundListIterator<'py>) -> Self {
+        Self::List(value)
+    }
+}
+
+impl<'py> From<BoundTupleIterator<'py>> for SequenceIterator<'py> {
+    fn from(value: BoundTupleIterator<'py>) -> Self {
+        Self::Tuple(value)
+    }
+}
+
+impl<'py> Iterator for SequenceIterator<'py> {
+    type Item = Bound<'py, PyAny>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::List(list) => list.next(),
+            Self::Tuple(tuple) => tuple.next(),
+        }
+    }
+}
 
 /// Create a JSON fragment from a bytes value, which must contain an
 /// already-encoded JSON value.
@@ -62,35 +114,32 @@ impl<'py> State<'py> {
         Ok(())
     }
 
-    /// Pops the given object from the stack of seen objects.
-    fn pop_object<T>(&mut self, object: &Bound<'py, T>) {
+    /// Pops the top value from the stack of seen objects.
+    fn pop_object(&mut self) {
         if let Some(stack) = &mut self.object_stack {
-            let top = stack.pop();
-
-            debug_assert_eq!(top, Some(object.as_ptr().addr()));
+            stack.pop();
         }
     }
 }
 
 /// Serialize the given value to the buffer.
-fn any_to_json<'py>(state: &mut State<'py>, value: &Bound<'py, PyAny>) -> PyResult<()> {
+fn any_to_json<'py>(state: &mut State<'py>, value: &Bound<'py, PyAny>) -> ThunkResult<'py, PyErr> {
     match (any_to_json_native(state, value), state.object_hook) {
-        (Err(AnyToJsonNativeError::UnsupportedType(_)), Some(hook)) => {
-            state.push_object(value)?;
+        (ThunkResult::Err(AnyToJsonNativeError::UnsupportedType(_)), Some(hook)) => {
+            thunk_try!(state.push_object(value));
 
             // If we have an object hook, we can try calling that and then
             // serializing the result.
-            let r = any_to_json_native(state, &hook.call1((value,))?);
+            let r = any_to_json_native(state, &thunk_try!(hook.call1((value,))));
 
-            state.pop_object(value);
+            state.pop_object();
 
             r
         }
 
         (r, _) => r,
-    }?;
-
-    Ok(())
+    }
+    .map_err(|e| e.into())
 }
 
 /// Errors that can occur in [`any_to_json_native`].
@@ -127,7 +176,7 @@ impl From<AnyToJsonNativeError<'_>> for PyErr {
 fn any_to_json_native<'py>(
     state: &mut State<'py>,
     value: &Bound<'py, PyAny>,
-) -> Result<(), AnyToJsonNativeError<'py>> {
+) -> ThunkResult<'py, AnyToJsonNativeError<'py>> {
     // The order here matters, as certain types will coerce in a cast.  For
     // example, we have to check bools before trying to cast to PyInt, because
     // bools will coerce to ints.
@@ -138,12 +187,12 @@ fn any_to_json_native<'py>(
     } else if value.is(PyBool::new(value.py(), false)) {
         state.buffer.extend(b"false");
     } else if let Ok(s) = value.cast::<PyString>() {
-        string_to_json(&mut state.buffer, s.to_str()?);
+        string_to_json(&mut state.buffer, thunk_try!(s.to_str()));
     } else if let Ok(i) = value.cast::<PyInt>() {
-        int_to_json(&mut state.buffer, i)?;
+        thunk_try!(int_to_json(&mut state.buffer, i));
     } else if let Ok(f) = value.cast::<PyFloat>().map(|f| f.value()) {
         if !f.is_finite() {
-            return Err(AnyToJsonNativeError::Serialization(PyErr::new::<
+            return ThunkResult::Err(AnyToJsonNativeError::Serialization(PyErr::new::<
                 PyValueError,
                 _,
             >(
@@ -154,24 +203,21 @@ fn any_to_json_native<'py>(
         let mut buf = zmij::Buffer::new();
         state.buffer.extend(buf.format_finite(f).as_bytes());
     } else if let Ok(l) = value.cast::<PyList>() {
-        state.push_object(l)?;
-        list_to_json(state, l.iter())?;
-        state.pop_object(l);
+        thunk_try!(state.push_object(l));
+        return list_to_json(state, l.iter().into()).map_err(|e| e.into());
     } else if let Ok(t) = value.cast::<PyTuple>() {
-        state.push_object(t)?;
-        list_to_json(state, t.iter())?;
-        state.pop_object(t);
+        thunk_try!(state.push_object(t));
+        return list_to_json(state, t.iter().into()).map_err(|e| e.into());
     } else if let Ok(d) = value.cast::<PyDict>() {
-        state.push_object(d)?;
-        dict_to_json(state, d)?;
-        state.pop_object(d);
+        thunk_try!(state.push_object(d));
+        return dict_to_json(state, d).map_err(|e| e.into());
     } else if let Ok(f) = value.cast::<Fragment>() {
         state.buffer.extend(f.borrow().0.as_bytes(value.py()));
     } else {
-        return Err(AnyToJsonNativeError::UnsupportedType(value.get_type()));
+        return ThunkResult::Err(AnyToJsonNativeError::UnsupportedType(value.get_type()));
     }
 
-    Ok(())
+    ThunkResult::Ok(())
 }
 
 /// Serialize the given int to the buffer.
@@ -226,33 +272,48 @@ fn string_to_json(buf: &mut Vec<u8>, s: &str) {
 /// Serialize the given list to the buffer.
 fn list_to_json<'py>(
     state: &mut State<'py>,
-    list: impl IntoIterator<Item = Bound<'py, PyAny>>,
-) -> PyResult<()> {
+    mut items: SequenceIterator<'py>,
+) -> ThunkResult<'py, PyErr> {
     state.buffer.push(b'[');
 
-    let mut items = list.into_iter();
+    match items.next() {
+        None => {
+            state.buffer.push(b']');
+            state.pop_object();
+            ThunkResult::Ok(())
+        }
 
-    if let Some(i) = items.next() {
-        any_to_json(state, &i)?;
-        drop(i);
+        Some(item) => ThunkResult::Thunk(Thunk {
+            item,
+            continuation: ThunkContinuation::SerializingSequence(items),
+        }),
+    }
+}
 
-        for i in items {
+/// Continue serializing a list.
+fn continue_list_to_json<'py>(
+    state: &mut State<'py>,
+    mut items: SequenceIterator<'py>,
+) -> ThunkResult<'py, PyErr> {
+    match items.next() {
+        None => {
+            state.buffer.push(b']');
+            state.pop_object();
+            ThunkResult::Ok(())
+        }
+
+        Some(item) => {
             state.buffer.push(b',');
-            any_to_json(state, &i)?;
+            ThunkResult::Thunk(Thunk {
+                item,
+                continuation: ThunkContinuation::SerializingSequence(items),
+            })
         }
     }
-
-    state.buffer.push(b']');
-
-    Ok(())
 }
 
 /// Serialize the given pair as a JSON object key and value.
-fn dict_item_to_json<'py>(
-    state: &mut State<'py>,
-    key: &Bound<'py, PyAny>,
-    item: &Bound<'py, PyAny>,
-) -> PyResult<()> {
+fn write_dict_key<'py>(state: &mut State<'py>, key: &Bound<'py, PyAny>) -> PyResult<()> {
     // Like any_to_json_native, we have to be careful about order here in some
     // cases.  However, none of the types here will coerce to PyString, so we
     // test that first since it's the most likely.
@@ -283,32 +344,53 @@ fn dict_item_to_json<'py>(
 
     state.buffer.push(b':');
 
-    any_to_json(state, item)?;
-
     Ok(())
 }
 
 /// Serialize the given dict to the buffer.
-fn dict_to_json<'py>(state: &mut State<'py>, dict: &Bound<'py, PyDict>) -> PyResult<()> {
+fn dict_to_json<'py>(state: &mut State<'py>, dict: &Bound<'py, PyDict>) -> ThunkResult<'py, PyErr> {
     state.buffer.push(b'{');
 
     let mut items = dict.iter();
 
-    if let Some((key, value)) = items.next() {
-        dict_item_to_json(state, &key, &value)?;
+    match items.next() {
+        None => {
+            state.buffer.push(b'}');
+            state.pop_object();
+            ThunkResult::Ok(())
+        }
 
-        drop((key, value));
-
-        for (key, value) in items {
-            state.buffer.push(b',');
-
-            dict_item_to_json(state, &key, &value)?;
+        Some((key, value)) => {
+            thunk_try!(write_dict_key(state, &key));
+            ThunkResult::Thunk(Thunk {
+                item: value,
+                continuation: ThunkContinuation::SerializingDict(items),
+            })
         }
     }
+}
 
-    state.buffer.push(b'}');
+/// Continue serializing a dict.
+fn continue_dict_to_json<'py>(
+    state: &mut State<'py>,
+    mut items: BoundDictIterator<'py>,
+) -> ThunkResult<'py, PyErr> {
+    match items.next() {
+        None => {
+            state.buffer.push(b'}');
+            state.pop_object();
+            ThunkResult::Ok(())
+        }
 
-    Ok(())
+        Some((key, value)) => {
+            state.buffer.push(b',');
+            thunk_try!(write_dict_key(state, &key));
+            ThunkResult::Thunk(Thunk {
+                item: value,
+                continuation: ThunkContinuation::SerializingDict(items),
+            })
+        }
+    }
 }
 
 /// Serialize the given value as JSON.
@@ -323,7 +405,33 @@ pub fn into_json<'py>(
         object_stack: check_circular.then(Vec::new),
     };
 
-    any_to_json(&mut state, value)?;
+    let mut stack = vec![];
+
+    let mut last_result = any_to_json(&mut state, value);
+
+    loop {
+        last_result = match last_result {
+            ThunkResult::Err(e) => return Err(e),
+
+            ThunkResult::Thunk(op) => {
+                stack.push(op.continuation);
+
+                any_to_json(&mut state, &op.item)
+            }
+
+            ThunkResult::Ok(()) => match stack.pop() {
+                Some(ThunkContinuation::SerializingSequence(iter)) => {
+                    continue_list_to_json(&mut state, iter)
+                }
+
+                Some(ThunkContinuation::SerializingDict(iter)) => {
+                    continue_dict_to_json(&mut state, iter)
+                }
+
+                None => break,
+            },
+        };
+    }
 
     Ok(PyBytes::new(value.py(), &state.buffer))
 }
