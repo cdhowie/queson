@@ -195,12 +195,16 @@ fn string_to_json(buf: &mut Vec<u8>, s: &str) {
             b' '.. => buf.push(b),
 
             0..b' ' => {
-                buf.extend(b"\\u00");
-
                 const HEX_MAP: &[u8] = b"0123456789abcdef";
 
-                buf.push(HEX_MAP[usize::from((b & 0xf0) >> 4)]);
-                buf.push(HEX_MAP[usize::from(b & 0x0f)]);
+                buf.extend([
+                    b'\\',
+                    b'u',
+                    b'0',
+                    b'0',
+                    HEX_MAP[usize::from((b & 0xf0) >> 4)],
+                    HEX_MAP[usize::from(b & 0x0f)],
+                ]);
             }
         }
     }
