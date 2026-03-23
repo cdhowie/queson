@@ -157,7 +157,8 @@ fn any_to_json_native<'py>(
             )));
         }
 
-        write!(state.buffer, "{f}").unwrap();
+        let mut buf = zmij::Buffer::new();
+        state.buffer.extend(buf.format_finite(f).as_bytes());
     } else if let Ok(l) = value.cast::<PyList>() {
         state.push_object(l)?;
         list_to_json(state, l.iter())?;
