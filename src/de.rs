@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use pyo3::{
     exceptions::PyValueError,
     prelude::*,
@@ -8,10 +6,10 @@ use pyo3::{
 
 use crate::thunk_try;
 
-type ThunkResult<'json, D> = crate::thunk::ThunkResult<
+type ThunkResult<D> = crate::thunk::ThunkResult<
     <D as Deserialization>::Any,
     ParseError<<D as Deserialization>::Error>,
-    Thunk<'json, D>,
+    Thunk<D>,
 >;
 
 /// A parsing thunk.
@@ -23,7 +21,7 @@ type ThunkResult<'json, D> = crate::thunk::ThunkResult<
 /// It is implied that the next operation to be performed is "parse any value
 /// from the input."  Once a single value is parsed, the last-encountered thunk
 /// is resumed.
-enum Thunk<'json, D: Deserialization> {
+enum Thunk<D: Deserialization> {
     /// Incomplete parsing of a list.
     ParsingList(D::List),
 
@@ -32,7 +30,7 @@ enum Thunk<'json, D: Deserialization> {
         /// Map being parsed.
         dict: D::Map,
         /// The next key to be added.
-        key: Cow<'json, [u8]>,
+        key: D::String,
     },
 }
 
@@ -158,7 +156,7 @@ trait Deserialization {
     fn extend_map(
         &self,
         map: &mut Self::Map,
-        key: &[u8],
+        key: Self::String,
         value: Self::Any,
     ) -> Result<(), Self::Error>;
 
@@ -253,10 +251,10 @@ impl<'py> Deserialization for PyDeserialization<'py> {
     fn extend_map(
         &self,
         map: &mut Self::Map,
-        key: &[u8],
+        key: Self::String,
         value: Self::Any,
     ) -> Result<(), Self::Error> {
-        map.set_item(self.create_string(key)?, value.0)
+        map.set_item(key, value.0)
     }
 
     fn finish_map(&self, map: Self::Map) -> Result<Self::Any, Self::Error> {
@@ -311,11 +309,9 @@ impl Deserialization for ValidateDeserialization {
     fn extend_map(
         &self,
         _map: &mut Self::Map,
-        key: &[u8],
+        _key: Self::String,
         _value: Self::Any,
     ) -> Result<(), Self::Error> {
-        str::from_utf8(key)?;
-
         Ok(())
     }
 
@@ -450,10 +446,7 @@ fn expect<T>(
 }
 
 /// Parse the next JSON value from the provided slice.
-fn parse_any<'json, D: Deserialization>(
-    deserialization: &D,
-    b: &mut &'json [u8],
-) -> ThunkResult<'json, D> {
+fn parse_any<D: Deserialization>(deserialization: &D, b: &mut &[u8]) -> ThunkResult<D> {
     ThunkResult::<D>::Ok(match b.peek() {
         Err(e) => return ThunkResult::<D>::Err(e),
 
@@ -477,12 +470,7 @@ fn parse_any<'json, D: Deserialization>(
 
         Ok(b'"') => {
             b.skip();
-            thunk_try!(
-                deserialization
-                    .create_string(&thunk_try!(parse_str(b)))
-                    .map_err(ParseError::Custom)
-            )
-            .into()
+            thunk_try!(parse_str(deserialization, b)).into()
         }
 
         Ok(b'[') => {
@@ -583,7 +571,10 @@ fn parse_number<D: Deserialization>(
 /// Note this function does not guarantee that a successfully-produced value is
 /// valid UTF-8.  This is because the Python side will also validate the byte
 /// string as UTF-8, so validating it here is wasted effort.
-fn parse_str<'json, T>(b: &mut &'json [u8]) -> Result<Cow<'json, [u8]>, ParseError<T>> {
+fn parse_str<D: Deserialization>(
+    deserialization: &D,
+    b: &mut &[u8],
+) -> Result<D::String, ParseError<D::Error>> {
     let start = *b;
 
     // Start under the assumption that we can borrow the encoded string.  The
@@ -594,7 +585,9 @@ fn parse_str<'json, T>(b: &mut &'json [u8]) -> Result<Cow<'json, [u8]>, ParseErr
                 let bytes = start.len() - b.len();
                 b.skip();
 
-                return Ok(Cow::Borrowed(&start[0..bytes]));
+                return deserialization
+                    .create_string(&start[0..bytes])
+                    .map_err(ParseError::Custom);
             }
 
             b'\\' => {
@@ -669,7 +662,11 @@ fn parse_str<'json, T>(b: &mut &'json [u8]) -> Result<Cow<'json, [u8]>, ParseErr
                 _ => return Err(ParseError::InvalidStringEscape),
             },
 
-            b'"' => return Ok(Cow::Owned(buf)),
+            b'"' => {
+                return deserialization
+                    .create_string(&buf)
+                    .map_err(ParseError::Custom);
+            }
 
             c if c < b' ' => return Err(ParseError::UnescapedControlCharacter),
 
@@ -704,10 +701,7 @@ fn parse_unicode_escape<T>(b: &mut &[u8]) -> Result<u16, ParseError<T>> {
 ///
 /// This function should be called when `b` has already been advanced past the
 /// `[` character that began the list.
-fn parse_list<'json, D: Deserialization>(
-    deserialization: &D,
-    b: &mut &'json [u8],
-) -> ThunkResult<'json, D> {
+fn parse_list<D: Deserialization>(deserialization: &D, b: &mut &[u8]) -> ThunkResult<D> {
     let list = deserialization.create_list();
 
     b.consume_whitespace();
@@ -724,12 +718,12 @@ fn parse_list<'json, D: Deserialization>(
 ///
 /// This is called once the next value of a list has been parsed, and parsing
 /// the list itself is being resumed from a thunk.
-fn continue_parse_list<'json, D: Deserialization>(
+fn continue_parse_list<D: Deserialization>(
     deserialization: &D,
     mut list: D::List,
     value: D::Any,
-    b: &mut &'json [u8],
-) -> ThunkResult<'json, D> {
+    b: &mut &[u8],
+) -> ThunkResult<D> {
     thunk_try!(
         deserialization
             .extend_list(&mut list, value)
@@ -754,10 +748,7 @@ fn continue_parse_list<'json, D: Deserialization>(
 ///
 /// This function should be called when `b` has already been advanced past the
 /// `{` character that began the map.
-fn parse_map<'json, D: Deserialization>(
-    deserialization: &D,
-    b: &mut &'json [u8],
-) -> ThunkResult<'json, D> {
+fn parse_map<D: Deserialization>(deserialization: &D, b: &mut &[u8]) -> ThunkResult<D> {
     let dict = deserialization.create_map();
 
     b.consume_whitespace();
@@ -769,7 +760,7 @@ fn parse_map<'json, D: Deserialization>(
             ));
         }
 
-        b'"' => thunk_try!(parse_str(b)),
+        b'"' => thunk_try!(parse_str(deserialization, b)),
 
         _ => return ThunkResult::<D>::Err(ParseError::ExpectedMapItem),
     };
@@ -785,16 +776,16 @@ fn parse_map<'json, D: Deserialization>(
 ///
 /// This is called once the next value of a map has been parsed, and parsing the
 /// map itself is being resumed from a thunk.
-fn continue_parse_map<'json, D: Deserialization>(
+fn continue_parse_map<D: Deserialization>(
     deserialization: &D,
     mut dict: D::Map,
-    key: Cow<'json, [u8]>,
+    key: D::String,
     value: D::Any,
-    b: &mut &'json [u8],
-) -> ThunkResult<'json, D> {
+    b: &mut &[u8],
+) -> ThunkResult<D> {
     thunk_try!(
         deserialization
-            .extend_map(&mut dict, &key, value)
+            .extend_map(&mut dict, key, value)
             .map_err(ParseError::Custom)
     );
 
@@ -809,7 +800,7 @@ fn continue_parse_map<'json, D: Deserialization>(
             b.consume_whitespace();
             thunk_try!(expect(b, b'"', || ParseError::ExpectedMapItem));
 
-            let key = thunk_try!(parse_str(b));
+            let key = thunk_try!(parse_str(deserialization, b));
 
             b.consume_whitespace();
             thunk_try!(expect(b, b':', || ParseError::ExpectedMapItem));
