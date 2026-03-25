@@ -1,5 +1,3 @@
-use std::io::Write;
-
 use pyo3::{
     exceptions::PyValueError,
     prelude::*,
@@ -220,15 +218,45 @@ fn any_to_json_native<'py>(
     ThunkResult::Ok(())
 }
 
+fn write_native_int(buf: &mut Vec<u8>, mut v: u64) {
+    if v == 0 {
+        buf.push(b'0');
+        return;
+    }
+
+    let mut outbuf = [0; 20];
+    let mut outpos = 20;
+
+    while v != 0 {
+        outpos -= 1;
+
+        let digit = v % 10;
+        v /= 10;
+
+        outbuf[outpos] = (digit as u8) + b'0';
+    }
+
+    buf.extend(&outbuf[outpos..]);
+}
+
 /// Serialize the given int to the buffer.
 fn int_to_json(buf: &mut Vec<u8>, i: &Bound<'_, PyInt>) -> PyResult<()> {
     // Try as u64 and i64 first, since these don't require an allocation.
     // Otherwise, fall back to writing the value as a string, which creates a
     // PyString (and therefore allocates).
     if let Ok(v) = i.extract::<u64>() {
-        write!(buf, "{v}").unwrap();
+        write_native_int(buf, v);
     } else if let Ok(v) = i.extract::<i64>() {
-        write!(buf, "{v}").unwrap();
+        match v {
+            0 => buf.push(b'0'),
+
+            1.. => write_native_int(buf, v as u64),
+
+            ..0 => {
+                buf.push(b'-');
+                write_native_int(buf, v.unsigned_abs());
+            }
+        }
     } else {
         let s = i.str()?;
         buf.extend(s.to_str()?.as_bytes());
