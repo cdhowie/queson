@@ -7,7 +7,7 @@ use pyo3::{
     },
 };
 
-use crate::thunk_try;
+use crate::{simd::str_find_special_byte, thunk_try};
 
 type ThunkResult<'py, E> = crate::thunk::ThunkResult<(), E, Thunk<'py>>;
 
@@ -267,13 +267,19 @@ fn int_to_json(buf: &mut Vec<u8>, i: &Bound<'_, PyInt>) -> PyResult<()> {
 
 /// Serialize the given string to the buffer.
 fn string_to_json(buf: &mut Vec<u8>, s: &str) {
+    let s = s.as_bytes();
+
     // We are going to push at least this many more bytes, but maybe more if
     // escape sequences are required.
     buf.reserve(s.len() + 2);
 
     buf.push(b'"');
 
-    for &b in s.as_bytes() {
+    let spec_pos = str_find_special_byte(s);
+
+    buf.extend(&s[..spec_pos]);
+
+    for &b in &s[spec_pos..] {
         match b {
             b'\\' | b'"' => buf.extend([b'\\', b]),
 

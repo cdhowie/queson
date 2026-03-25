@@ -4,7 +4,7 @@ use pyo3::{
     types::{PyBool, PyDict, PyFloat, PyFunction, PyInt, PyList, PyNone, PyString},
 };
 
-use crate::thunk_try;
+use crate::{simd::str_find_special_byte, thunk_try};
 
 type ThunkResult<D> = crate::thunk::ThunkResult<
     <D as Deserialization>::Any,
@@ -576,6 +576,9 @@ fn parse_str<D: Deserialization>(
     b: &mut &[u8],
 ) -> Result<D::String, ParseError<D::Error>> {
     let start = *b;
+
+    // Skip as many characters as we can using a vectorized search.
+    b.skip_n(str_find_special_byte(b));
 
     // Start under the assumption that we can borrow the encoded string.  The
     // only thing that can make this impossible is escape sequences.

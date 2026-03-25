@@ -4,6 +4,7 @@ mod de;
 #[cfg(feature = "pymem-alloc")]
 mod pymem;
 mod ser;
+mod simd;
 mod thunk;
 
 #[pymodule]
