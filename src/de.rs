@@ -139,13 +139,17 @@ trait Deserialization {
     /// Create the given string value.
     ///
     /// The given value is not guaranteed to be valid UTF-8.
-    fn create_string(&self, value: &[u8]) -> Result<Self::String, Self::Error>;
+    fn create_string(&self, value: &[u8]) -> Result<Self::String, ParseError<Self::Error>>;
 
     /// Create the given number value.
     ///
     /// `is_float` will be true if `value` contains at least one of: `'.'`,
     /// `'e'`, or `'E'`.
-    fn create_number(&self, value: &str, is_float: bool) -> Result<Self::Number, Self::Error>;
+    fn create_number(
+        &self,
+        value: &str,
+        is_float: bool,
+    ) -> Result<Self::Number, ParseError<Self::Error>>;
 
     /// Create an empty map.
     fn create_map(&self) -> Self::Map;
@@ -158,16 +162,20 @@ trait Deserialization {
         map: &mut Self::Map,
         key: Self::String,
         value: Self::Any,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<(), ParseError<Self::Error>>;
 
     /// Perform any final transformations on a complete map.
-    fn finish_map(&self, map: Self::Map) -> Result<Self::Any, Self::Error>;
+    fn finish_map(&self, map: Self::Map) -> Result<Self::Any, ParseError<Self::Error>>;
 
     /// Create an empty list.
     fn create_list(&self) -> Self::List;
 
     /// Extend the given list with the provided value.
-    fn extend_list(&self, list: &mut Self::List, value: Self::Any) -> Result<(), Self::Error>;
+    fn extend_list(
+        &self,
+        list: &mut Self::List,
+        value: Self::Any,
+    ) -> Result<(), ParseError<Self::Error>>;
 }
 
 /// Wrapper type for any Python value.
@@ -210,11 +218,15 @@ impl<'py> Deserialization for PyDeserialization<'py> {
         PyBool::new(self.python, value).to_owned()
     }
 
-    fn create_string(&self, value: &[u8]) -> Result<Self::String, Self::Error> {
-        PyString::from_bytes(self.python, value)
+    fn create_string(&self, value: &[u8]) -> Result<Self::String, ParseError<Self::Error>> {
+        Ok(PyString::from_bytes(self.python, value)?)
     }
 
-    fn create_number(&self, value: &str, is_float: bool) -> Result<Self::Number, Self::Error> {
+    fn create_number(
+        &self,
+        value: &str,
+        is_float: bool,
+    ) -> Result<Self::Number, ParseError<Self::Error>> {
         match is_float {
             false => {
                 // Try parsing as a 64-bit integer first; this is significantly
@@ -239,7 +251,10 @@ impl<'py> Deserialization for PyDeserialization<'py> {
                     .parse()
                     .map_err(|_| ParseError::<PyErr>::InvalidNumber)?;
 
-                Ok(PyFloat::new(self.python, parsed).into())
+                match parsed.is_finite() {
+                    true => Ok(PyFloat::new(self.python, parsed).into()),
+                    false => Err(ParseError::InvalidNumber),
+                }
             }
         }
     }
@@ -253,14 +268,14 @@ impl<'py> Deserialization for PyDeserialization<'py> {
         map: &mut Self::Map,
         key: Self::String,
         value: Self::Any,
-    ) -> Result<(), Self::Error> {
-        map.set_item(key, value.0)
+    ) -> Result<(), ParseError<Self::Error>> {
+        Ok(map.set_item(key, value.0)?)
     }
 
-    fn finish_map(&self, map: Self::Map) -> Result<Self::Any, Self::Error> {
+    fn finish_map(&self, map: Self::Map) -> Result<Self::Any, ParseError<Self::Error>> {
         match &self.object_hook {
             None => Ok(map.into()),
-            Some(hook) => hook.call1((map,)).map(|r| r.into()),
+            Some(hook) => Ok(hook.call1((map,)).map(|r| r.into())?),
         }
     }
 
@@ -268,8 +283,12 @@ impl<'py> Deserialization for PyDeserialization<'py> {
         PyList::empty(self.python)
     }
 
-    fn extend_list(&self, list: &mut Self::List, value: Self::Any) -> Result<(), Self::Error> {
-        list.append(value.0)
+    fn extend_list(
+        &self,
+        list: &mut Self::List,
+        value: Self::Any,
+    ) -> Result<(), ParseError<Self::Error>> {
+        Ok(list.append(value.0)?)
     }
 }
 
@@ -294,14 +313,27 @@ impl Deserialization for ValidateDeserialization {
 
     fn create_bool(&self, _value: bool) -> Self::Bool {}
 
-    fn create_string(&self, value: &[u8]) -> Result<Self::String, Self::Error> {
-        str::from_utf8(value)?;
+    fn create_string(&self, value: &[u8]) -> Result<Self::String, ParseError<Self::Error>> {
+        str::from_utf8(value).map_err(ParseError::Custom)?;
 
         Ok(())
     }
 
-    fn create_number(&self, _value: &str, _is_float: bool) -> Result<Self::Number, Self::Error> {
-        Ok(())
+    fn create_number(
+        &self,
+        value: &str,
+        is_float: bool,
+    ) -> Result<Self::Number, ParseError<Self::Error>> {
+        match is_float {
+            true => match value.parse::<f64>() {
+                Ok(v) if v.is_finite() => Ok(()),
+                _ => Err(ParseError::InvalidNumber),
+            },
+
+            // If is_float is false, the string is guaranteed to only be ASCII
+            // digits, which makes it a valid Python int.
+            false => Ok(()),
+        }
     }
 
     fn create_map(&self) -> Self::Map {}
@@ -311,17 +343,21 @@ impl Deserialization for ValidateDeserialization {
         _map: &mut Self::Map,
         _key: Self::String,
         _value: Self::Any,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), ParseError<Self::Error>> {
         Ok(())
     }
 
-    fn finish_map(&self, _map: Self::Map) -> Result<Self::Any, Self::Error> {
+    fn finish_map(&self, _map: Self::Map) -> Result<Self::Any, ParseError<Self::Error>> {
         Ok(())
     }
 
     fn create_list(&self) -> Self::List {}
 
-    fn extend_list(&self, _list: &mut Self::List, _value: Self::Any) -> Result<(), Self::Error> {
+    fn extend_list(
+        &self,
+        _list: &mut Self::List,
+        _value: Self::Any,
+    ) -> Result<(), ParseError<Self::Error>> {
         Ok(())
     }
 }
@@ -554,9 +590,7 @@ fn parse_number<D: Deserialization>(
     // have already returned Err somewhere above.
     let number = unsafe { str::from_utf8_unchecked(number) };
 
-    deserialization
-        .create_number(number, is_float)
-        .map_err(ParseError::Custom)
+    deserialization.create_number(number, is_float)
 }
 
 /// Parse a string from the front of the slice.
@@ -588,9 +622,7 @@ fn parse_str<D: Deserialization>(
                 let bytes = start.len() - b.len();
                 b.skip();
 
-                return deserialization
-                    .create_string(&start[0..bytes])
-                    .map_err(ParseError::Custom);
+                return deserialization.create_string(&start[0..bytes]);
             }
 
             b'\\' => {
@@ -666,9 +698,7 @@ fn parse_str<D: Deserialization>(
             },
 
             b'"' => {
-                return deserialization
-                    .create_string(&buf)
-                    .map_err(ParseError::Custom);
+                return deserialization.create_string(&buf);
             }
 
             c if c < b' ' => return Err(ParseError::UnescapedControlCharacter),
@@ -727,11 +757,7 @@ fn continue_parse_list<D: Deserialization>(
     value: D::Any,
     b: &mut &[u8],
 ) -> ThunkResult<D> {
-    thunk_try!(
-        deserialization
-            .extend_list(&mut list, value)
-            .map_err(ParseError::Custom)
-    );
+    thunk_try!(deserialization.extend_list(&mut list, value));
 
     b.consume_whitespace();
 
@@ -758,9 +784,7 @@ fn parse_map<D: Deserialization>(deserialization: &D, b: &mut &[u8]) -> ThunkRes
 
     let key = match thunk_try!(b.read()) {
         b'}' => {
-            return ThunkResult::<D>::Ok(thunk_try!(
-                deserialization.finish_map(dict).map_err(ParseError::Custom)
-            ));
+            return ThunkResult::<D>::Ok(thunk_try!(deserialization.finish_map(dict)));
         }
 
         b'"' => thunk_try!(parse_str(deserialization, b)),
@@ -786,18 +810,12 @@ fn continue_parse_map<D: Deserialization>(
     value: D::Any,
     b: &mut &[u8],
 ) -> ThunkResult<D> {
-    thunk_try!(
-        deserialization
-            .extend_map(&mut dict, key, value)
-            .map_err(ParseError::Custom)
-    );
+    thunk_try!(deserialization.extend_map(&mut dict, key, value));
 
     b.consume_whitespace();
 
     match thunk_try!(b.read()) {
-        b'}' => ThunkResult::Ok(thunk_try!(
-            deserialization.finish_map(dict).map_err(ParseError::Custom)
-        )),
+        b'}' => ThunkResult::Ok(thunk_try!(deserialization.finish_map(dict))),
 
         b',' => {
             b.consume_whitespace();
