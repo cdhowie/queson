@@ -97,11 +97,13 @@ impl<E: Into<PyErr>> From<ParseError<E>> for PyErr {
 impl<E: Into<PyErr>> ParseError<E> {
     /// Convert this parsing error into a `PyErr` with a note that specifies the
     /// given location as the source of the error.
+    #[cfg_attr(not(Py_3_11), expect(unused_variables))]
     fn into_pyerr_with_location<'py>(self, python: Python<'py>, location: usize) -> PyErr {
         let e: PyErr = self.into();
 
         // Disregard any error from add_note; we have no feasible way to
         // handle it, and it shouldn't happen anyway.
+        #[cfg(Py_3_11)]
         e.add_note(python, format!("at input location {location}"))
             .ok();
 
