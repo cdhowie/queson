@@ -674,7 +674,9 @@ fn parse_str<D: Deserialization>(
                                 }
 
                                 char::from_u32(
-                                    (u32::from(c1 - 0xD800) << 10) + u32::from(c2 - 0xDC00),
+                                    (u32::from(c1 - 0xD800) << 10)
+                                        + u32::from(c2 - 0xDC00)
+                                        + 0x10000,
                                 )
                                 .ok_or(ParseError::InvalidStringEscape)?
                             }
