@@ -15,8 +15,10 @@ def test_jsontestsuite():
                 try:
                     result = apjson.loads(content)
                     err = None
-                except Exception as e:
+                except ValueError as e:
                     err = e
+                except Exception as e:
+                    raise RuntimeError('raised exception was not a ValueError') from e
 
                 if err is not None and file.name.startswith('y_'):
                     raise RuntimeError(f"parsing failed") from err
