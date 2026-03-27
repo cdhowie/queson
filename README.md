@@ -1,6 +1,6 @@
-# apjson
+# queson
 
-[![CI](https://github.com/cdhowie/apjson/actions/workflows/CI.yml/badge.svg)](https://github.com/cdhowie/apjson/actions/workflows/CI.yml)
+[![CI](https://github.com/cdhowie/queson/actions/workflows/CI.yml/badge.svg)](https://github.com/cdhowie/queson/actions/workflows/CI.yml)
 
 An experimental JSON encoder/decoder Python module written in Rust.
 
@@ -34,7 +34,7 @@ Benchmark environment:
 * Python 3.11.11
     * orjson 3.9.5
 
-| Benchmark                          | json    | apjson                | orjson                 |
+| Benchmark                          | json    | queson                | orjson                 |
 | :--------------------------------- | ------: | --------------------: | ---------------------: |
 | testfiles/jsonmsg-1.json loads     | 177 us  | 86.7 us: 2.04x faster | 52.8 us: 3.34x faster  |
 | testfiles/jsonmsg-1.json dumps     | 213 us  | 67.2 us: 3.16x faster | 21.1 us: 10.07x faster |
@@ -48,7 +48,7 @@ Benchmark environment:
 | testfiles/oops-all-ints.json dumps | 203 us  | 65.2 us: 3.11x faster | 20.1 us: 10.10x faster |
 | Geometric mean                     | (ref)   | 2.37x faster          | 5.03x faster           |
 
-Running the same benchmarks but monitoring memory usage concludes that `apjson`
+Running the same benchmarks but monitoring memory usage concludes that `queson`
 has a 2% higher RSS peak than `json`, and `orjson` has a 13% higher RSS peak
 than `json`.
 

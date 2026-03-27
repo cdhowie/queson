@@ -1,6 +1,6 @@
 import pytest
 
-import apjson
+import queson
 import json
 import math
 
@@ -16,7 +16,7 @@ def test_jsontestsuite():
                     content = f.read()
 
                 try:
-                    result = apjson.loads(content)
+                    result = queson.loads(content)
                     err = None
                 except ValueError as e:
                     err = e
@@ -49,7 +49,7 @@ def test_loads_objecthook():
 
         return v
 
-    result = apjson.loads('{"foo":"bar","custom":{"type":"$custom","value":42}}', object_hook=hook)
+    result = queson.loads('{"foo":"bar","custom":{"type":"$custom","value":42}}', object_hook=hook)
 
     assert result == {
         "foo": "bar",
@@ -63,12 +63,12 @@ def test_dumps_objecthook():
 
         return v
 
-    result = apjson.dumps({
+    result = queson.dumps({
         "foo": "bar",
         "custom": CustomValue(42),
     }, object_hook=hook)
 
-    parsed = apjson.loads(result)
+    parsed = queson.loads(result)
 
     assert parsed == {
         "foo": "bar",
@@ -83,7 +83,7 @@ def test_loads_objecthook_passes_error():
         raise RuntimeError('from hook')
 
     with pytest.raises(RuntimeError) as e:
-        apjson.loads('{}', object_hook=hook)
+        queson.loads('{}', object_hook=hook)
 
     assert str(e.value) == 'from hook'
 
@@ -92,7 +92,7 @@ def test_dumps_objecthook_passes_error():
         raise RuntimeError('from hook')
 
     with pytest.raises(RuntimeError) as e:
-        apjson.dumps(CustomValue(42), object_hook=hook)
+        queson.dumps(CustomValue(42), object_hook=hook)
 
     assert str(e.value) == 'from hook'
 
@@ -105,4 +105,4 @@ def test_dumps_invalid_values_raise_valueerror():
         {1.2: 3},
     ]:
         with pytest.raises(ValueError):
-            apjson.dumps(case)
+            queson.dumps(case)

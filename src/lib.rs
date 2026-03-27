@@ -8,7 +8,7 @@ mod simd;
 mod thunk;
 
 #[pymodule]
-mod apjson {
+mod queson {
     use pyo3::{
         exceptions::PyTypeError,
         prelude::*,

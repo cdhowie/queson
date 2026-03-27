@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "apjson"
+name = "queson"
 version = "0.1.0"
 dependencies = [
  "pyo3",

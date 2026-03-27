@@ -62,7 +62,7 @@ jobs:
           set -e
           python3 -m venv .venv
           source .venv/bin/activate
-          pip install apjson --find-links dist --force-reinstall
+          pip install queson --find-links dist --force-reinstall
           pip install pytest
           pytest tests
       - name: pytest
@@ -78,7 +78,7 @@ jobs:
             pip3 install -U pip pytest
           run: |
             set -e
-            pip3 install apjson --find-links dist --force-reinstall
+            pip3 install queson --find-links dist --force-reinstall
             pytest tests
 
   musllinux:
@@ -121,7 +121,7 @@ jobs:
             apk add py3-pip py3-virtualenv
             python3 -m virtualenv .venv
             source .venv/bin/activate
-            pip install apjson --no-index --find-links dist --force-reinstall
+            pip install queson --no-index --find-links dist --force-reinstall
             pip install pytest
             pytest tests
           '
@@ -139,7 +139,7 @@ jobs:
             python3 -m virtualenv .venv
             source .venv/bin/activate
             pip install pytest
-            pip install apjson --find-links dist --force-reinstall
+            pip install queson --find-links dist --force-reinstall
             pytest tests
 
   windows:
@@ -181,7 +181,7 @@ jobs:
           set -e
           python3 -m venv .venv
           source .venv/Scripts/activate
-          pip install apjson --find-links dist --force-reinstall
+          pip install queson --find-links dist --force-reinstall
           pip install pytest
           pytest tests
 
@@ -217,7 +217,7 @@ jobs:
           set -e
           python3 -m venv .venv
           source .venv/bin/activate
-          pip install apjson --find-links dist --force-reinstall
+          pip install queson --find-links dist --force-reinstall
           pip install pytest
           pytest tests
 
