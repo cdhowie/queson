@@ -3,15 +3,6 @@
 version = 4
 
 [[package]]
-name = "queson"
-version = "0.1.0"
-dependencies = [
- "pyo3",
- "pyo3-build-config",
- "zmij",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -127,6 +118,15 @@ dependencies = [
  "pyo3-build-config",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "queson"
+version = "0.1.0"
+dependencies = [
+ "pyo3",
+ "pyo3-build-config",
+ "zmij",
 ]
 
 [[package]]
