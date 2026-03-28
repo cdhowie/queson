@@ -432,7 +432,7 @@ pub fn into_json<'py>(
     value: &Bound<'py, PyAny>,
     object_hook: Option<&'py Bound<'py, PyFunction>>,
     check_circular: bool,
-) -> PyResult<Bound<'py, PyBytes>> {
+) -> PyResult<Vec<u8>> {
     let mut state = State {
         buffer: vec![],
         object_hook,
@@ -467,5 +467,5 @@ pub fn into_json<'py>(
         };
     }
 
-    Ok(PyBytes::new(value.py(), &state.buffer))
+    Ok(state.buffer)
 }

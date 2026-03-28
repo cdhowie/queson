@@ -16,7 +16,7 @@ def test_jsontestsuite():
                     content = f.read()
 
                 try:
-                    result = queson.loads(content)
+                    result = queson.loadb(content)
                     err = None
                 except ValueError as e:
                     err = e
@@ -42,33 +42,33 @@ class CustomValue:
     def __eq__(self, other):
         return isinstance(other, CustomValue) and self.value == other.value
 
-def test_loads_objecthook():
+def test_loadb_objecthook():
     def hook(v):
         if v.get('type') == '$custom':
             return CustomValue(v['value'])
 
         return v
 
-    result = queson.loads('{"foo":"bar","custom":{"type":"$custom","value":42}}', object_hook=hook)
+    result = queson.loadb('{"foo":"bar","custom":{"type":"$custom","value":42}}', object_hook=hook)
 
     assert result == {
         "foo": "bar",
         "custom": CustomValue(42),
     }
 
-def test_dumps_objecthook():
+def test_dumpb_objecthook():
     def hook(v):
         if isinstance(v, CustomValue):
             return {"type": "$custom", "value": v.value}
 
         return v
 
-    result = queson.dumps({
+    result = queson.dumpb({
         "foo": "bar",
         "custom": CustomValue(42),
     }, object_hook=hook)
 
-    parsed = queson.loads(result)
+    parsed = queson.loadb(result)
 
     assert parsed == {
         "foo": "bar",
@@ -78,25 +78,25 @@ def test_dumps_objecthook():
         },
     }
 
-def test_loads_objecthook_passes_error():
+def test_loadb_objecthook_passes_error():
     def hook(v):
         raise RuntimeError('from hook')
 
     with pytest.raises(RuntimeError) as e:
-        queson.loads('{}', object_hook=hook)
+        queson.loadb('{}', object_hook=hook)
 
     assert str(e.value) == 'from hook'
 
-def test_dumps_objecthook_passes_error():
+def test_dumpb_objecthook_passes_error():
     def hook(v):
         raise RuntimeError('from hook')
 
     with pytest.raises(RuntimeError) as e:
-        queson.dumps(CustomValue(42), object_hook=hook)
+        queson.dumpb(CustomValue(42), object_hook=hook)
 
     assert str(e.value) == 'from hook'
 
-def test_dumps_invalid_values_raise_valueerror():
+def test_dumpb_invalid_values_raise_valueerror():
     for case in [
         math.inf,
         -math.inf,
@@ -105,7 +105,7 @@ def test_dumps_invalid_values_raise_valueerror():
         {1.2: 3},
     ]:
         with pytest.raises(ValueError):
-            queson.dumps(case)
+            queson.dumpb(case)
 
 def test_fragment_validation():
     with pytest.raises(ValueError):
@@ -114,7 +114,7 @@ def test_fragment_validation():
     queson.Fragment(b'{', validate=False)
 
 def test_fragment():
-    result = queson.dumps([
+    result = queson.dumpb([
         {},
         queson.Fragment(b'[1]'),
         queson.Fragment(b'[', validate=False),
@@ -122,10 +122,10 @@ def test_fragment():
 
     assert result == b'[{},[1],[]'
 
-# Fuzzing found this case: if loads() input contains a float that overflows, it
+# Fuzzing found this case: if loadb() input contains a float that overflows, it
 # was resulting in infinity, which could not be serialized back successfully
-# with dumps().  loads() was changed to raise a ValueError if parsing encounters
+# with dumpb().  loadb() was changed to raise a ValueError if parsing encounters
 # a non-finite float.
 def test_float_overflow():
     with pytest.raises(ValueError):
-        queson.loads(b'1e3322')
+        queson.loadb(b'1e3322')

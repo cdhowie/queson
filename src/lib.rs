@@ -16,6 +16,9 @@ mod queson {
     };
 
     /// Deserialize a JSON-encoded value.
+    ///
+    /// This function accepts either `bytes` or `str`.  A `bytes` will be more
+    /// efficient, as a `str` will be UTF-8 encoded first.
     #[pyfunction]
     #[pyo3(signature = (json, /, object_hook = None))]
     fn loads<'py>(
@@ -33,15 +36,48 @@ mod queson {
         crate::de::parse_json(json.py(), bytes, object_hook)
     }
 
-    /// Serialize a value as JSON.
+    /// Deserialize a JSON-encoded value.
+    ///
+    /// This function accepts either `bytes` or `str`.  A `bytes` will be more
+    /// efficient, as a `str` will be UTF-8 encoded first.
+    #[pyfunction]
+    #[pyo3(signature = (json, /, object_hook = None))]
+    fn loadb<'py>(
+        json: &Bound<'py, PyAny>,
+        object_hook: Option<&'py Bound<'py, PyFunction>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        loads(json, object_hook)
+    }
+
+    /// Serialize a value into a JSON `str`.
+    ///
+    /// Consider using `dumpb` instead, as it will be faster when you can use a
+    /// UTF-8 encoded `bytes` instead.
     #[pyfunction]
     #[pyo3(signature = (value, /, object_hook = None, check_circular = true))]
     fn dumps<'py>(
         value: &Bound<'py, PyAny>,
         object_hook: Option<&'py Bound<'py, PyFunction>>,
         check_circular: bool,
+    ) -> PyResult<Bound<'py, PyString>> {
+        PyString::from_bytes(
+            value.py(),
+            &crate::ser::into_json(value, object_hook, check_circular)?,
+        )
+    }
+
+    /// Serialize a value into a UTF-8 encoded JSON `bytes`.
+    #[pyfunction]
+    #[pyo3(signature = (value, /, object_hook = None, check_circular = true))]
+    fn dumpb<'py>(
+        value: &Bound<'py, PyAny>,
+        object_hook: Option<&'py Bound<'py, PyFunction>>,
+        check_circular: bool,
     ) -> PyResult<Bound<'py, PyBytes>> {
-        crate::ser::into_json(value, object_hook, check_circular)
+        Ok(PyBytes::new(
+            value.py(),
+            &crate::ser::into_json(value, object_hook, check_circular)?,
+        ))
     }
 
     #[pymodule_export]
