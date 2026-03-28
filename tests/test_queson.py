@@ -121,3 +121,11 @@ def test_fragment():
     ])
 
     assert result == b'[{},[1],[]'
+
+# Fuzzing found this case: if loads() input contains a float that overflows, it
+# was resulting in infinity, which could not be serialized back successfully
+# with dumps().  loads() was changed to raise a ValueError if parsing encounters
+# a non-finite float.
+def test_float_overflow():
+    with pytest.raises(ValueError):
+        queson.loads(b'1e3322')
