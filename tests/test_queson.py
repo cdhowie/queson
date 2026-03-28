@@ -106,3 +106,18 @@ def test_dumps_invalid_values_raise_valueerror():
     ]:
         with pytest.raises(ValueError):
             queson.dumps(case)
+
+def test_fragment_validation():
+    with pytest.raises(ValueError):
+        queson.Fragment(b'{')
+
+    queson.Fragment(b'{', validate=False)
+
+def test_fragment():
+    result = queson.dumps([
+        {},
+        queson.Fragment(b'[1]'),
+        queson.Fragment(b'[', validate=False),
+    ])
+
+    assert result == b'[{},[1],[]'
