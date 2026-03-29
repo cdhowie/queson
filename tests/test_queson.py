@@ -3,10 +3,11 @@ import pytest
 import queson
 import json
 import math
+import typing
 
 from pathlib import Path
 
-def test_jsontestsuite():
+def test_jsontestsuite() -> None:
     testsdir = Path(__file__).resolve().parent.parent / 'external/JSONTestSuite/test_parsing'
 
     for file in testsdir.iterdir():
@@ -36,14 +37,14 @@ def test_jsontestsuite():
                 raise
 
 class CustomValue:
-    def __init__(self, value):
+    def __init__(self, value: typing.Any) -> None:
         self.value = value
 
-    def __eq__(self, other):
+    def __eq__(self, other: typing.Any) -> bool:
         return isinstance(other, CustomValue) and self.value == other.value
 
-def test_loadb_objecthook():
-    def hook(v):
+def test_loadb_objecthook() -> None:
+    def hook(v: dict[str, typing.Any]) -> typing.Any:
         if v.get('type') == '$custom':
             return CustomValue(v['value'])
 
@@ -56,8 +57,8 @@ def test_loadb_objecthook():
         "custom": CustomValue(42),
     }
 
-def test_dumpb_objecthook():
-    def hook(v):
+def test_dumpb_objecthook() -> None:
+    def hook(v: typing.Any) -> typing.Any:
         if isinstance(v, CustomValue):
             return {"type": "$custom", "value": v.value}
 
@@ -78,8 +79,8 @@ def test_dumpb_objecthook():
         },
     }
 
-def test_loadb_objecthook_passes_error():
-    def hook(v):
+def test_loadb_objecthook_passes_error() -> None:
+    def hook(v: typing.Any) -> typing.Never:
         raise RuntimeError('from hook')
 
     with pytest.raises(RuntimeError) as e:
@@ -87,8 +88,8 @@ def test_loadb_objecthook_passes_error():
 
     assert str(e.value) == 'from hook'
 
-def test_dumpb_objecthook_passes_error():
-    def hook(v):
+def test_dumpb_objecthook_passes_error() -> None:
+    def hook(v: typing.Any) -> typing.Never:
         raise RuntimeError('from hook')
 
     with pytest.raises(RuntimeError) as e:
@@ -96,7 +97,7 @@ def test_dumpb_objecthook_passes_error():
 
     assert str(e.value) == 'from hook'
 
-def test_dumpb_invalid_values_raise_valueerror():
+def test_dumpb_invalid_values_raise_valueerror() -> None:
     for case in [
         math.inf,
         -math.inf,
@@ -107,13 +108,13 @@ def test_dumpb_invalid_values_raise_valueerror():
         with pytest.raises(ValueError):
             queson.dumpb(case)
 
-def test_fragment_validation():
+def test_fragment_validation() -> None:
     with pytest.raises(ValueError):
         queson.Fragment(b'{')
 
     queson.Fragment(b'{', validate=False)
 
-def test_fragment():
+def test_fragment() -> None:
     result = queson.dumpb([
         {},
         queson.Fragment(b'[1]'),
@@ -126,6 +127,6 @@ def test_fragment():
 # was resulting in infinity, which could not be serialized back successfully
 # with dumpb().  loadb() was changed to raise a ValueError if parsing encounters
 # a non-finite float.
-def test_float_overflow():
+def test_float_overflow() -> None:
     with pytest.raises(ValueError):
         queson.loadb(b'1e3322')
