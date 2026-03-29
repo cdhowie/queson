@@ -137,7 +137,14 @@ def test_float_overflow() -> None:
 def test_deep_structure() -> None:
     source = b'[' * 1000000 + b']' * 1000000
 
-    assert queson.dumpb(queson.loadb(source)) == source
+    # Construct a fragment with validation instead of deserializing.  This test
+    # is intended to verify that the heap-based stack allows arbitrarily-deep
+    # structures to be deserialized, and the validation code uses the same
+    # function as deserialization, just without producing any Python objects.
+    # Allocating all of those Python objects takes a very long time, whereas
+    # validation finishes very quickly while still exercising the same code we
+    # are trying to test.
+    queson.Fragment(source, validate=True)
 
 def test_depth_limit() -> None:
     source = b'[' * 1000000 + b']' * 1000000
