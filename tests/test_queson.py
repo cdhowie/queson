@@ -133,3 +133,14 @@ def test_fragment() -> None:
 def test_float_overflow() -> None:
     with pytest.raises(ValueError):
         queson.loadb(b'1e3322')
+
+def test_deep_structure() -> None:
+    source = b'[' * 1000000 + b']' * 1000000
+
+    assert queson.dumpb(queson.loadb(source)) == source
+
+def test_depth_limit() -> None:
+    source = b'[' * 1000000 + b']' * 1000000
+
+    with pytest.raises(ValueError):
+        queson.loadb(source, depth_limit=10000)

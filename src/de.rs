@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use pyo3::{
     exceptions::PyValueError,
     prelude::*,
@@ -58,6 +60,8 @@ pub enum ParseError<E> {
     InvalidNumber,
     /// A string contained an unescaped control character.
     UnescapedControlCharacter,
+    /// The depth limit provided by the caller was exceeded.
+    DepthLimitExceeded,
     /// Something else happened.
     ///
     /// In most cases this will be a `PyErr` that resulted from interacting with
@@ -83,6 +87,7 @@ impl<E: Into<PyErr>> From<ParseError<E>> for PyErr {
             ParseError::InvalidUtf8 => "invalid UTF-8 encoding",
             ParseError::InvalidStringEscape => "invalid string escape sequence",
             ParseError::InvalidNumber => "invalid number",
+            ParseError::DepthLimitExceeded => "depth limit exceeded",
             ParseError::UnescapedControlCharacter => "unescaped control character in string",
 
             ParseError::Expected(s) => {
@@ -841,6 +846,7 @@ fn continue_parse_map<D: Deserialization>(
 /// Parse a JSON value with the given [`Deserialization`] implementation.
 fn parse_json_with<D: Deserialization>(
     deserialization: &D,
+    depth_limit: Option<NonZeroUsize>,
     mut json: &[u8],
 ) -> Result<D::Any, (ParseError<D::Error>, usize)> {
     let len = json.len();
@@ -859,6 +865,10 @@ fn parse_json_with<D: Deserialization>(
 
             ThunkResult::Thunk(op) => {
                 stack.push(op);
+
+                if depth_limit.is_some_and(|limit| stack.len() >= limit.into()) {
+                    return Err((ParseError::DepthLimitExceeded, len - json.len()));
+                }
 
                 parse_any(deserialization, &mut json)
             }
@@ -900,12 +910,14 @@ pub fn parse_json<'py>(
     python: Python<'py>,
     json: &[u8],
     object_hook: Option<&'py Bound<'py, PyFunction>>,
+    depth_limit: Option<NonZeroUsize>,
 ) -> PyResult<Bound<'py, PyAny>> {
     match parse_json_with(
         &PyDeserialization {
             python,
             object_hook,
         },
+        depth_limit,
         json,
     ) {
         Ok(v) => Ok(v.0),
@@ -914,7 +926,11 @@ pub fn parse_json<'py>(
 }
 
 /// Validates that the given JSON-encoded value is well-formed.
-pub fn validate_json<'py>(python: Python<'py>, json: &[u8]) -> PyResult<()> {
-    parse_json_with(&ValidateDeserialization, json)
+pub fn validate_json<'py>(
+    python: Python<'py>,
+    json: &[u8],
+    depth_limit: Option<NonZeroUsize>,
+) -> PyResult<()> {
+    parse_json_with(&ValidateDeserialization, depth_limit, json)
         .map_err(|(e, location)| e.into_pyerr_with_location(python, location))
 }

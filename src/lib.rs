@@ -9,6 +9,8 @@ mod thunk;
 
 #[pymodule]
 mod queson {
+    use std::num::NonZeroUsize;
+
     use pyo3::{
         exceptions::PyTypeError,
         prelude::*,
@@ -20,10 +22,11 @@ mod queson {
     /// This function accepts either `bytes` or `str`.  A `bytes` will be more
     /// efficient, as a `str` will be UTF-8 encoded first.
     #[pyfunction]
-    #[pyo3(signature = (json, *, object_hook = None))]
+    #[pyo3(signature = (json, *, object_hook = None, depth_limit = None))]
     fn loads<'py>(
         json: &Bound<'py, PyAny>,
         object_hook: Option<&'py Bound<'py, PyFunction>>,
+        depth_limit: Option<NonZeroUsize>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let bytes = if let Ok(s) = json.cast::<PyString>() {
             s.to_str()?.as_bytes()
@@ -33,7 +36,7 @@ mod queson {
             return Err(PyErr::new::<PyTypeError, _>("expected a str or bytes"));
         };
 
-        crate::de::parse_json(json.py(), bytes, object_hook)
+        crate::de::parse_json(json.py(), bytes, object_hook, depth_limit)
     }
 
     /// Deserialize a JSON-encoded value.
@@ -41,12 +44,13 @@ mod queson {
     /// This function accepts either `bytes` or `str`.  A `bytes` will be more
     /// efficient, as a `str` will be UTF-8 encoded first.
     #[pyfunction]
-    #[pyo3(signature = (json, *, object_hook = None))]
+    #[pyo3(signature = (json, *, object_hook = None, depth_limit = None))]
     fn loadb<'py>(
         json: &Bound<'py, PyAny>,
         object_hook: Option<&'py Bound<'py, PyFunction>>,
+        depth_limit: Option<NonZeroUsize>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        loads(json, object_hook)
+        loads(json, object_hook, depth_limit)
     }
 
     /// Serialize a value into a JSON `str`.

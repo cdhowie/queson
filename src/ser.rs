@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use pyo3::{
     exceptions::PyValueError,
     prelude::*,
@@ -73,15 +75,15 @@ pub struct Fragment(Py<PyBytes>);
 
 #[pymethods]
 impl Fragment {
-    /// Create a new fragment.
-    ///
-    /// By default, the provided byte string is validated and an error thrown if
-    /// validation fails.  Specify `validate=False` to skip validation.
     #[new]
-    #[pyo3(signature = (bytes, *, validate = true))]
-    fn new<'py>(bytes: Bound<'py, PyBytes>, validate: bool) -> PyResult<Self> {
+    #[pyo3(signature = (bytes, *, validate = true, depth_limit = None))]
+    fn new<'py>(
+        bytes: Bound<'py, PyBytes>,
+        validate: bool,
+        depth_limit: Option<NonZeroUsize>,
+    ) -> PyResult<Self> {
         if validate {
-            crate::de::validate_json(bytes.py(), bytes.as_bytes())?;
+            crate::de::validate_json(bytes.py(), bytes.as_bytes(), depth_limit)?;
         }
 
         Ok(Self(bytes.into()))
