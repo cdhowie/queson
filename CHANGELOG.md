@@ -1,3 +1,7 @@
+# 0.2.1
+
+* Added `depth_limit` option to all deserialization/validation functions.
+
 # 0.2.0
 
 ## Breaking changes
