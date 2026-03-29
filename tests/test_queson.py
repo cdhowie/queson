@@ -31,7 +31,10 @@ def test_jsontestsuite() -> None:
                     if file.name.startswith('n_'):
                         raise RuntimeError(f"parsing succeeded when it shouldn't")
 
-                    assert json.loads(content) == result
+                    # Only compare to json.loads() for tests that must succeed,
+                    # because json.loads() is allowed to fail for other tests.
+                    if file.name.startswith('y_'):
+                        assert json.loads(content) == result
             except Exception as e:
                 e.add_note(f"test case {file.name}")
                 raise
