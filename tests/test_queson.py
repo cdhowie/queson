@@ -80,7 +80,7 @@ def test_dumpb_objecthook() -> None:
     }
 
 def test_loadb_objecthook_passes_error() -> None:
-    def hook(v: typing.Any) -> typing.Never:
+    def hook(v: typing.Any) -> None:
         raise RuntimeError('from hook')
 
     with pytest.raises(RuntimeError) as e:
@@ -89,7 +89,7 @@ def test_loadb_objecthook_passes_error() -> None:
     assert str(e.value) == 'from hook'
 
 def test_dumpb_objecthook_passes_error() -> None:
-    def hook(v: typing.Any) -> typing.Never:
+    def hook(v: typing.Any) -> None:
         raise RuntimeError('from hook')
 
     with pytest.raises(RuntimeError) as e:
