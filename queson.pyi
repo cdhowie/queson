@@ -1,12 +1,38 @@
 from typing import Any, Callable, Optional, Union
 
-def loadb(json: Union[bytes, str], *, object_hook: Optional[Callable[[dict[str, Any]], Any]] = None) -> Any: ...
+def loadb(
+    json: Union[bytes, str],
+    *,
+    object_hook: Optional[Callable[[dict[str, Any]], Any]] = None,
+    depth_limit: Optional[int] = None,
+) -> Any: ...
 
-def loads(json: Union[bytes, str], *, object_hook: Optional[Callable[[dict[str, Any]], Any]] = None) -> Any: ...
+def loads(
+    json: Union[bytes, str],
+    *,
+    object_hook: Optional[Callable[[dict[str, Any]], Any]] = None,
+    depth_limit: Optional[int] = None,
+) -> Any: ...
 
-def dumpb(value: Any, *, object_hook: Optional[Callable[[Any], Any]] = None, check_circular: bool = True) -> bytes: ...
+def dumpb(
+    value: Any,
+    *,
+    object_hook: Optional[Callable[[Any], Any]] = None,
+    check_circular: bool = True,
+) -> bytes: ...
 
-def dumps(value: Any, *, object_hook: Optional[Callable[[Any], Any]] = None, check_circular: bool = True) -> str: ...
+def dumps(
+    value: Any,
+    *,
+    object_hook: Optional[Callable[[Any], Any]] = None,
+    check_circular: bool = True,
+) -> str: ...
 
 class Fragment:
-    def __init__(self, content: bytes, *, validate: bool = True) -> None: ...
+    def __init__(
+        self,
+        content: bytes,
+        *,
+        validate: bool = True,
+        depth_limit: Optional[int] = None,
+    ) -> None: ...
