@@ -2,7 +2,7 @@ import pyperf
 
 import pathlib
 
-def run_bench(module):
+def run_bench(load, dump):
     runner = pyperf.Runner()
 
     for entry in pathlib.Path('testfiles').iterdir():
@@ -10,7 +10,7 @@ def run_bench(module):
             with open(entry, 'rb') as f:
                 encoded = f.read()
 
-            decoded = module.loads(encoded)
+            decoded = load(encoded)
 
-            runner.bench_func(f"{entry} loads", module.loads, encoded)
-            runner.bench_func(f"{entry} dumps", module.dumps, decoded)
+            runner.bench_func(f"{entry.name} load", load, encoded)
+            runner.bench_func(f"{entry.name} dump", dump, decoded)

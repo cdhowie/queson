@@ -2,7 +2,7 @@
 
 mkdir -p results || exit 1
 
-for mod in json apjson orjson; do
+for mod in json queson orjson; do
     rm -f results/$mod.json
     echo $mod
     python runtest_$mod.py --quiet -o results/$mod.json || exit 1
