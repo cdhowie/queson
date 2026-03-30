@@ -150,3 +150,10 @@ def test_depth_limit() -> None:
 
     with pytest.raises(ValueError):
         queson.loadb(source, depth_limit=10000)
+
+def test_circular() -> None:
+    cycle: list[typing.Any] = []
+    cycle.append(cycle)
+
+    with pytest.raises(ValueError):
+        queson.dumpb(cycle, check_circular=True)
