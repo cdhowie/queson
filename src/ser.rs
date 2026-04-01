@@ -281,17 +281,25 @@ fn fast_extract_int<T: FastExtractInt + PartialEq>(v: &Bound<'_, PyInt>) -> Opti
 
 /// Serialize the given int to the buffer.
 fn int_to_json(buf: &mut Vec<u8>, i: &Bound<'_, PyInt>) -> PyResult<()> {
-    // Try as u64 and i64 first, since these don't require an allocation.
+    // Try as i64 and u64 first, since these don't require an allocation.
     // Otherwise, fall back to writing the value as a string, which creates a
     // PyString (and therefore allocates).
-    if let Some(v) = fast_extract_int::<u64>(i) {
+    //
+    // We try i64 first because small negative numbers are more likely than
+    // large numbers in the specific range [i64::MAX + 1, u64::MAX].
+    if let Some(v) = fast_extract_int::<i64>(i) {
+        // There's multiple ways to write this test, and they all result in the
+        // same codegen.  The optimizer is smart.
+        match u64::try_from(v) {
+            Ok(v) => write_native_int(buf, v),
+
+            Err(_) => {
+                buf.push(b'-');
+                write_native_int(buf, v.unsigned_abs());
+            }
+        }
+    } else if let Some(v) = fast_extract_int::<u64>(i) {
         write_native_int(buf, v);
-    } else if let Some(v) = fast_extract_int::<i64>(i) {
-        // The range 0.. should be impossible here, since anything in that range
-        // would extract as a u64 successfully and be handled above, so just
-        // assume we have a negative number.
-        buf.push(b'-');
-        write_native_int(buf, v.unsigned_abs());
     } else {
         let s = i.str()?;
         buf.extend(s.to_str()?.as_bytes());
