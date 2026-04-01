@@ -2,6 +2,7 @@ use std::num::NonZeroUsize;
 
 use pyo3::{
     exceptions::PyValueError,
+    ffi::{PyErr_Clear, PyLong_AsLongLong, PyLong_AsUnsignedLongLong},
     prelude::*,
     types::{
         PyBool, PyBytes, PyDict, PyFloat, PyFunction, PyInt, PyList, PyString, PyTuple, PyType,
@@ -246,14 +247,46 @@ fn write_native_int(buf: &mut Vec<u8>, mut v: u64) {
     buf.extend(&outbuf[outpos..]);
 }
 
+trait FastExtractInt {
+    const ERROR_SENTINEL: Self;
+    const EXTRACTOR: unsafe extern "C" fn(*mut pyo3::ffi::PyObject) -> Self;
+}
+
+impl FastExtractInt for u64 {
+    const ERROR_SENTINEL: Self = !0;
+    const EXTRACTOR: unsafe extern "C" fn(*mut pyo3::ffi::PyObject) -> Self =
+        PyLong_AsUnsignedLongLong;
+}
+
+impl FastExtractInt for i64 {
+    const ERROR_SENTINEL: Self = -1;
+    const EXTRACTOR: unsafe extern "C" fn(*mut pyo3::ffi::PyObject) -> Self = PyLong_AsLongLong;
+}
+
+/// Extracts an integer type from a [`PyInt`].
+///
+/// This function will be faster in the case where extraction fails, because no
+/// `PyErr` is created and then discarded, as would be the case with the
+/// PyO3-based `.extract` mechanism.
+fn fast_extract_int<T: FastExtractInt + PartialEq>(v: &Bound<'_, PyInt>) -> Option<T> {
+    let r = unsafe { T::EXTRACTOR(v.as_ptr()) };
+
+    if r == T::ERROR_SENTINEL && PyErr::occurred(v.py()) {
+        unsafe { PyErr_Clear() };
+        None
+    } else {
+        Some(r)
+    }
+}
+
 /// Serialize the given int to the buffer.
 fn int_to_json(buf: &mut Vec<u8>, i: &Bound<'_, PyInt>) -> PyResult<()> {
     // Try as u64 and i64 first, since these don't require an allocation.
     // Otherwise, fall back to writing the value as a string, which creates a
     // PyString (and therefore allocates).
-    if let Ok(v) = i.extract::<u64>() {
+    if let Some(v) = fast_extract_int::<u64>(i) {
         write_native_int(buf, v);
-    } else if let Ok(v) = i.extract::<i64>() {
+    } else if let Some(v) = fast_extract_int::<i64>(i) {
         // The range 0.. should be impossible here, since anything in that range
         // would extract as a u64 successfully and be handled above, so just
         // assume we have a negative number.
