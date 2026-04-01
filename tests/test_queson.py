@@ -38,6 +38,19 @@ def test_jsontestsuite() -> None:
             except Exception as e:
                 raise RuntimeError(f"test case {file.name} failed") from e
 
+def test_benchmark_testfiles():
+    testsdir = Path(__file__).resolve().parent.parent / 'benchmarks/testfiles'
+
+    for file in testsdir.iterdir():
+        if file.is_file():
+            try:
+                with open(file, 'rb') as f:
+                    content = f.read()
+
+                assert queson.loadb(content) == json.loads(content)
+            except Exception as e:
+                raise RuntimeError(f"test case {file.name} failed") from e
+
 class CustomValue:
     def __init__(self, value: typing.Any) -> None:
         self.value = value
