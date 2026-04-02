@@ -226,27 +226,6 @@ fn any_to_json_native<'py>(
     ThunkResult::Ok(())
 }
 
-fn write_native_int(buf: &mut Vec<u8>, mut v: u64) {
-    if v == 0 {
-        buf.push(b'0');
-        return;
-    }
-
-    let mut outbuf = [0; 20];
-    let mut outpos = 20;
-
-    while v != 0 {
-        outpos -= 1;
-
-        let digit = v % 10;
-        v /= 10;
-
-        outbuf[outpos] = (digit as u8) + b'0';
-    }
-
-    buf.extend(&outbuf[outpos..]);
-}
-
 trait FastExtractInt {
     const ERROR_SENTINEL: Self;
     const EXTRACTOR: unsafe extern "C" fn(*mut pyo3::ffi::PyObject) -> Self;
@@ -288,18 +267,9 @@ fn int_to_json(buf: &mut Vec<u8>, i: &Bound<'_, PyInt>) -> PyResult<()> {
     // We try i64 first because small negative numbers are more likely than
     // large numbers in the specific range [i64::MAX + 1, u64::MAX].
     if let Some(v) = fast_extract_int::<i64>(i) {
-        // There's multiple ways to write this test, and they all result in the
-        // same codegen.  The optimizer is smart.
-        match u64::try_from(v) {
-            Ok(v) => write_native_int(buf, v),
-
-            Err(_) => {
-                buf.push(b'-');
-                write_native_int(buf, v.unsigned_abs());
-            }
-        }
+        itoap::write_to_vec(buf, v);
     } else if let Some(v) = fast_extract_int::<u64>(i) {
-        write_native_int(buf, v);
+        itoap::write_to_vec(buf, v);
     } else {
         let s = i.str()?;
         buf.extend(s.to_str()?.as_bytes());
