@@ -2,6 +2,7 @@ use std::{convert::Infallible, num::NonZeroUsize};
 
 use pyo3::{
     exceptions::PyValueError,
+    ffi::PyLong_FromString,
     prelude::*,
     types::{PyBool, PyDict, PyFloat, PyFunction, PyInt, PyList, PyNone, PyString},
 };
@@ -250,7 +251,22 @@ impl<'py> Deserialization for PyDeserialization<'py> {
                     return Ok(PyInt::new(self.python, parsed).into());
                 }
 
-                Ok(self.python.get_type::<PyInt>().call1((value,))?.into())
+                // To parse ints that don't fit into i64 or u64 we will
+                // construct a nul-terminated string and use PyLong_FromString.
+                //
+                // Using the int type constructor instead via PyO3 is half as
+                // fast in benchmarks.
+                let mut s = Vec::with_capacity(value.len() + 1);
+                s.extend(value.as_bytes());
+                s.push(0);
+
+                unsafe {
+                    Ok(Bound::from_owned_ptr_or_err(
+                        self.python,
+                        PyLong_FromString(s.as_ptr().cast(), std::ptr::null_mut(), 10),
+                    )?
+                    .into())
+                }
             }
 
             true => {
