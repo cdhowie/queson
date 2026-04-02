@@ -281,6 +281,7 @@ fn fast_extract_int<T: FastExtractInt + PartialEq>(v: &Bound<'_, PyInt>) -> Opti
 }
 
 /// Serialize the given int to the buffer.
+#[inline(always)]
 fn int_to_json(buf: &mut Vec<u8>, i: &Bound<'_, PyInt>) -> PyResult<()> {
     // Try as i64 and u64 first, since these don't require an allocation.
     // Otherwise, fall back to writing the value as a string, which creates a
