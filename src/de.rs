@@ -630,14 +630,6 @@ fn parse_number<D: Deserialization>(
 ///
 /// This function should be called when `b` has already been advanced past the
 /// `"` character that began the string.
-///
-/// If the string contains no escape sequences, no allocations are required and
-/// this function will return a string borrowed from the input slice. Otherwise,
-/// an owned string will be returned with the decoded string value.
-///
-/// Note this function does not guarantee that a successfully-produced value is
-/// valid UTF-8.  This is because the Python side will also validate the byte
-/// string as UTF-8, so validating it here is wasted effort.
 fn parse_str<D: Deserialization>(
     deserialization: &D,
     b: &mut &[u8],
