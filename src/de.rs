@@ -516,45 +516,43 @@ fn expect<T>(
 
 /// Parse the next JSON value from the provided slice.
 fn parse_any<D: Deserialization>(deserialization: &D, b: &mut &[u8]) -> ThunkResult<D> {
-    ThunkResult::<D>::Ok(match b.peek() {
-        Err(e) => return ThunkResult::<D>::Err(e),
-
-        Ok(b'n') => {
+    ThunkResult::<D>::Ok(match thunk_try!(b.peek()) {
+        b'n' => {
             b.skip();
             thunk_try!(expect(b, b"ull", || ParseError::Expected("null")));
             deserialization.create_null().into()
         }
 
-        Ok(b'f') => {
+        b'f' => {
             b.skip();
             thunk_try!(expect(b, b"alse", || ParseError::Expected("false")));
             deserialization.create_bool(false).into()
         }
 
-        Ok(b't') => {
+        b't' => {
             b.skip();
             thunk_try!(expect(b, b"rue", || ParseError::Expected("true")));
             deserialization.create_bool(true).into()
         }
 
-        Ok(b'"') => {
+        b'"' => {
             b.skip();
             thunk_try!(parse_str(deserialization, b).map_err(|e| *e)).into()
         }
 
-        Ok(b'[') => {
+        b'[' => {
             b.skip();
             return parse_list(deserialization, b);
         }
 
-        Ok(b'{') => {
+        b'{' => {
             b.skip();
             return parse_map(deserialization, b);
         }
 
-        Ok(b'-' | b'0'..=b'9') => thunk_try!(parse_number(deserialization, b)).into(),
+        b'-' | b'0'..=b'9' => thunk_try!(parse_number(deserialization, b)).into(),
 
-        Ok(_) => return ThunkResult::<D>::Err(ParseError::ExpectedAny),
+        _ => return ThunkResult::<D>::Err(ParseError::ExpectedAny),
     })
 }
 
