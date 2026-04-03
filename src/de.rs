@@ -539,7 +539,7 @@ fn parse_any<D: Deserialization>(deserialization: &D, b: &mut &[u8]) -> ThunkRes
 
         Ok(b'"') => {
             b.skip();
-            thunk_try!(parse_str(deserialization, b)).into()
+            thunk_try!(parse_str(deserialization, b).map_err(|e| *e)).into()
         }
 
         Ok(b'[') => {
@@ -641,7 +641,11 @@ fn parse_number<D: Deserialization>(
 fn parse_str<D: Deserialization>(
     deserialization: &D,
     b: &mut &[u8],
-) -> Result<D::String, ParseError<D::Error>> {
+) -> Result<D::String, Box<ParseError<D::Error>>> {
+    // The return error type is boxed as this function does not get inlined.
+    // Boxing it changes the return value size from 56 bytes to 16, allowing it
+    // to fit into registers.
+
     let start = *b;
 
     // Skip as many characters as we can using a vectorized search.
@@ -655,7 +659,7 @@ fn parse_str<D: Deserialization>(
                 let bytes = start.len() - b.len();
                 b.skip();
 
-                return deserialization.create_string(&start[0..bytes]);
+                return Ok(deserialization.create_string(&start[0..bytes])?);
             }
 
             b'\\' => {
@@ -667,7 +671,7 @@ fn parse_str<D: Deserialization>(
                 break start[0..bytes].to_owned();
             }
 
-            c if c < b' ' => return Err(ParseError::UnescapedControlCharacter),
+            c if c < b' ' => return Err(ParseError::UnescapedControlCharacter.into()),
 
             _ => {
                 b.skip();
@@ -703,7 +707,7 @@ fn parse_str<D: Deserialization>(
                                     // The next character was not a trailing
                                     // surrogate, so this is not a valid
                                     // surrogate pair.
-                                    return Err(ParseError::InvalidStringEscape);
+                                    return Err(ParseError::InvalidStringEscape.into());
                                 }
 
                                 char::from_u32(
@@ -715,7 +719,7 @@ fn parse_str<D: Deserialization>(
                             }
 
                             // Trailing surrogate without leading surrogate.
-                            0xDC00..=0xDFFF => return Err(ParseError::InvalidStringEscape),
+                            0xDC00..=0xDFFF => return Err(ParseError::InvalidStringEscape.into()),
 
                             // from_u32 should have returned Some in this case.
                             _ => unreachable!(),
@@ -729,14 +733,14 @@ fn parse_str<D: Deserialization>(
 
                 c @ (b'\\' | b'/' | b'"') => buf.push(c),
 
-                _ => return Err(ParseError::InvalidStringEscape),
+                _ => return Err(ParseError::InvalidStringEscape.into()),
             },
 
             b'"' => {
-                return deserialization.create_string(&buf);
+                return Ok(deserialization.create_string(&buf)?);
             }
 
-            c if c < b' ' => return Err(ParseError::UnescapedControlCharacter),
+            c if c < b' ' => return Err(ParseError::UnescapedControlCharacter.into()),
 
             c => buf.push(c),
         };
@@ -822,7 +826,7 @@ fn parse_map<D: Deserialization>(deserialization: &D, b: &mut &[u8]) -> ThunkRes
             return ThunkResult::<D>::Ok(thunk_try!(deserialization.finish_map(dict)));
         }
 
-        b'"' => thunk_try!(parse_str(deserialization, b)),
+        b'"' => thunk_try!(parse_str(deserialization, b).map_err(|e| *e)),
 
         _ => return ThunkResult::<D>::Err(ParseError::ExpectedMapItem),
     };
@@ -856,7 +860,7 @@ fn continue_parse_map<D: Deserialization>(
             b.consume_whitespace();
             thunk_try!(expect(b, b'"', || ParseError::ExpectedMapItem));
 
-            let key = thunk_try!(parse_str(deserialization, b));
+            let key = thunk_try!(parse_str(deserialization, b).map_err(|e| *e));
 
             b.consume_whitespace();
             thunk_try!(expect(b, b':', || ParseError::ExpectedMapItem));
