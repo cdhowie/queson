@@ -35,6 +35,8 @@ enum Thunk<D: Deserialization> {
         /// The next key to be added.
         key: D::String,
     },
+
+    Done,
 }
 
 /// A JSON parse error.
@@ -875,7 +877,7 @@ fn parse_json_with<D: Deserialization>(
 
     let mut stack = vec![];
 
-    let mut last_any = parse_any(deserialization, &mut json);
+    let mut last_any = ThunkResult::Thunk(Thunk::Done);
 
     let result = loop {
         last_any = match last_any {
@@ -893,18 +895,16 @@ fn parse_json_with<D: Deserialization>(
                 parse_any(deserialization, &mut json)
             }
 
-            ThunkResult::Ok(value) => match stack.pop() {
-                Some(op) => match op {
-                    Thunk::ParsingList(list) => {
-                        continue_parse_list(deserialization, list, value, &mut json)
-                    }
+            ThunkResult::Ok(value) => match stack.pop().unwrap() {
+                Thunk::ParsingList(list) => {
+                    continue_parse_list(deserialization, list, value, &mut json)
+                }
 
-                    Thunk::ParsingMap { dict, key } => {
-                        continue_parse_map(deserialization, dict, key, value, &mut json)
-                    }
-                },
+                Thunk::ParsingMap { dict, key } => {
+                    continue_parse_map(deserialization, dict, key, value, &mut json)
+                }
 
-                None => break value,
+                Thunk::Done => break value,
             },
         };
     };
