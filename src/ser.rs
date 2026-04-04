@@ -2,7 +2,9 @@ use std::num::NonZeroUsize;
 
 use pyo3::{
     exceptions::PyValueError,
-    ffi::{PyErr_Clear, PyLong_AsLongLong, PyLong_AsUnsignedLongLong},
+    ffi::{
+        _PyLong_NumBits, PyErr_Clear, PyLong_AsLongLong, PyLong_AsUnsignedLongLong, PyLong_Type,
+    },
     prelude::*,
     types::{
         PyBool, PyBytes, PyDict, PyFloat, PyFunction, PyInt, PyList, PyString, PyTuple, PyType,
@@ -297,18 +299,29 @@ fn fast_extract_int<T: FastExtractInt + PartialEq>(v: &Bound<'_, PyInt>) -> Opti
 /// Serialize the given int to the buffer.
 #[inline(always)]
 fn int_to_json(buf: &mut Vec<u8>, i: &Bound<'_, PyInt>) -> PyResult<()> {
-    // Try as i64 and u64 first, since these don't require an allocation.
-    // Otherwise, fall back to writing the value as a string, which creates a
-    // PyString (and therefore allocates).
+    // Ask how many bits are in the number.  If less than 64, it will fit into
+    // an i64.  We can extract a native i64 and format it without an allocation.
     //
-    // We try i64 first because small negative numbers are more likely than
-    // large numbers in the specific range [i64::MAX + 1, u64::MAX].
-    if let Some(v) = fast_extract_int::<i64>(i) {
-        itoap::write_to_vec(buf, v);
-    } else if let Some(v) = fast_extract_int::<u64>(i) {
+    // Otherwise, we fall back to getting the Python repr, which allocates a
+    // string.
+    if unsafe { _PyLong_NumBits(i.as_ptr()) } < 64
+        && let Some(v) = fast_extract_int::<i64>(i)
+    {
         itoap::write_to_vec(buf, v);
     } else {
-        let s = i.str()?;
+        // SAFETY: We have a Bound<PyInt> so we know it's a PyLong underneath,
+        // and we delegate the error checking to Bound::from_owned_ptr_or_err.
+        // tp_repr must return a string/Unicode object, so the cast is also
+        // safe.
+        //
+        // Calling PyLong_Type.tp_repr directly bypasses a bunch of checks
+        // (including subtype checks) that i.repr() would otherwise call.  The
+        // difference in time is significant (about 10%).
+        let s: Bound<'_, PyString> = unsafe {
+            Bound::from_owned_ptr_or_err(i.py(), (PyLong_Type.tp_repr.unwrap())(i.as_ptr()))?
+                .cast_into_unchecked()
+        };
+
         buf.extend(s.to_str()?.as_bytes());
     }
 
