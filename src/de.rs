@@ -444,14 +444,9 @@ impl Cursor for &[u8] {
     }
 
     fn read<T>(&mut self) -> Result<u8, ParseError<T>> {
-        match self.first().copied() {
-            Some(v) => {
-                self.skip();
-                Ok(v)
-            }
-
-            None => Err(ParseError::Eof),
-        }
+        let v = self.peek()?;
+        self.skip();
+        Ok(v)
     }
 
     fn consume_whitespace(&mut self) {
