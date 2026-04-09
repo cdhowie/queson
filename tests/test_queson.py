@@ -41,7 +41,7 @@ def test_jsontestsuite() -> None:
             except Exception as e:
                 raise RuntimeError(f"test case {file.name} failed") from e
 
-def test_benchmark_testfiles():
+def test_benchmark_testfiles() -> None:
     testsdir = Path(__file__).resolve().parent.parent / 'benchmarks/testfiles'
 
     for file in testsdir.iterdir():
