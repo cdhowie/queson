@@ -244,7 +244,7 @@ fn any_to_json_native<'py>(
         thunk_try!(state.push_object(d));
         return dict_to_json(state, d).map_err(|e| e.into());
     } else if let Ok(f) = value.cast::<Fragment>() {
-        state.buffer.extend(f.borrow().0.as_bytes(value.py()));
+        state.buffer.extend(f.get().0.as_bytes(value.py()));
     } else {
         return ThunkResult::Err(AnyToJsonNativeError::UnsupportedType(value.get_type()));
     }
