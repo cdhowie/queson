@@ -1,3 +1,8 @@
+# 0.2.5
+
+* Fixed off-by-one bug with the `depth_limit` parameter in the `load` family of
+  functions.  This was a regression introduced in 0.2.3.
+
 # 0.2.4
 
 * Add `dump` and `load` shims.
