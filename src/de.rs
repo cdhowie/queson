@@ -872,7 +872,7 @@ fn parse_json_with<D: Deserialization>(
             ThunkResult::Thunk(op) => {
                 stack.push(op);
 
-                if depth_limit.is_some_and(|limit| stack.len() >= limit.into()) {
+                if depth_limit.is_some_and(|limit| stack.len() > limit.into()) {
                     return Err((ParseError::DepthLimitExceeded, len - json.len()));
                 }
 

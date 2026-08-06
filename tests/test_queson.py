@@ -214,3 +214,11 @@ def test_circular() -> None:
 
     with pytest.raises(ValueError):
         queson.dumpb(cycle, check_circular=True)
+
+def test_specific_depth_limit() -> None:
+    source = b'[{"...":"...","arg":[[[[[[[[[[[[[1]]]]]]]]]]]]]}]'
+
+    with pytest.raises(ValueError):
+        queson.loadb(source, depth_limit=15)
+
+    queson.loadb(source, depth_limit=16)
