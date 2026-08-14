@@ -294,6 +294,51 @@ fn fast_extract_int<T: FastExtractInt + PartialEq>(v: &Bound<'_, PyInt>) -> Opti
     }
 }
 
+// Support for older Python that doesn't provide PyLong_AsNativeBytes.
+#[cfg(not(any(Py_3_14, all(Py_3_13, not(Py_LIMITED_API)))))]
+fn try_write_int(buf: &mut Vec<u8>, i: &Bound<'_, PyInt>) -> bool {
+    if let Some(v) = fast_extract_int::<i64>(i) {
+        itoap::write_to_vec(buf, v);
+        true
+    } else {
+        false
+    }
+}
+
+#[cfg(any(Py_3_14, all(Py_3_13, not(Py_LIMITED_API))))]
+fn try_write_int(buf: &mut Vec<u8>, i: &Bound<'_, PyInt>) -> bool {
+    let mut bytes = [0u8; 16];
+
+    let r = unsafe {
+        // SAFETY:
+        //
+        // * Must hold the GIL: we have a Bound<_> so we do.
+        // * First argument must be a pointer to a PyLong object: it's derived
+        //   from a Bound<PyInt>, so it must be.
+        // * The second argument must be a pointer to a contiguous sequence of
+        //   bytes, the length given in the third argument: the second is the
+        //   pointer to the first element of a local byte array, and the third
+        //   is its length.
+        pyo3::ffi::PyLong_AsNativeBytes(
+            i.as_ptr(),
+            bytes.as_mut_ptr().cast(),
+            bytes.len().try_into().unwrap(),
+            pyo3::ffi::Py_ASNATIVEBYTES_NATIVE_ENDIAN,
+        )
+    };
+
+    if r == -1 {
+        // SAFETY: Bound<_> proves we hold the GIL.
+        unsafe { PyErr_Clear() };
+        false
+    } else if r > bytes.len().try_into().unwrap() {
+        false
+    } else {
+        itoap::write_to_vec(buf, i128::from_ne_bytes(bytes));
+        true
+    }
+}
+
 /// Serialize the given int to the buffer.
 #[inline(always)]
 fn int_to_json(buf: &mut Vec<u8>, i: &Bound<'_, PyInt>) -> PyResult<()> {
@@ -302,9 +347,7 @@ fn int_to_json(buf: &mut Vec<u8>, i: &Bound<'_, PyInt>) -> PyResult<()> {
     //
     // Otherwise, we fall back to getting the Python repr, which allocates a
     // string.
-    if let Some(v) = fast_extract_int::<i64>(i) {
-        itoap::write_to_vec(buf, v);
-    } else {
+    if !try_write_int(buf, i) {
         // SAFETY: We have a Bound<PyInt> so we know it's a PyLong underneath,
         // and we delegate the error checking to Bound::from_owned_ptr_or_err.
         // tp_repr must return a string/Unicode object, so the cast is also
