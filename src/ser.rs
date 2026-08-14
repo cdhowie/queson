@@ -2,9 +2,7 @@ use std::num::NonZeroUsize;
 
 use pyo3::{
     exceptions::PyValueError,
-    ffi::{
-        _PyLong_NumBits, PyErr_Clear, PyLong_AsLongLong, PyLong_AsUnsignedLongLong, PyLong_Type,
-    },
+    ffi::{PyErr_Clear, PyLong_AsLongLong, PyLong_AsUnsignedLongLong, PyLong_Type},
     prelude::*,
     types::{
         PyBool, PyBytes, PyDict, PyFloat, PyFunction, PyInt, PyList, PyString, PyTuple, PyType,
@@ -304,9 +302,7 @@ fn int_to_json(buf: &mut Vec<u8>, i: &Bound<'_, PyInt>) -> PyResult<()> {
     //
     // Otherwise, we fall back to getting the Python repr, which allocates a
     // string.
-    if unsafe { _PyLong_NumBits(i.as_ptr()) } < 64
-        && let Some(v) = fast_extract_int::<i64>(i)
-    {
+    if let Some(v) = fast_extract_int::<i64>(i) {
         itoap::write_to_vec(buf, v);
     } else {
         // SAFETY: We have a Bound<PyInt> so we know it's a PyLong underneath,
