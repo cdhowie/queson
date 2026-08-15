@@ -2,7 +2,7 @@ use std::num::NonZeroUsize;
 
 use pyo3::{
     exceptions::PyValueError,
-    ffi::{PyErr_Clear, PyLong_AsLongLong, PyLong_AsUnsignedLongLong, PyLong_Type},
+    ffi::PyLong_Type,
     prelude::*,
     types::{
         PyBool, PyBytes, PyDict, PyFloat, PyFunction, PyInt, PyList, PyString, PyTuple, PyType,
